@@ -1,7 +1,7 @@
 library(ShoeScrubR)
 
 full_imglist <- list.files("/lss/research/csafe-shoeprints/ShoeImagingPermanent/",
-                      pattern = "00\\d{4}[RL]_\\d{8}_5_1_1", full.names = T)
+                      pattern = "0\\d{5}[RL]_\\d{8}_5_1_1", full.names = T)
 
 dir <- tempdir()
 
@@ -23,7 +23,8 @@ template_imgs <- tibble(
   filter(shoe_id_num %in% sprintf("%03d", shoe_images$ShoeID)) %>%
   mutate(shoe = str_extract(shoe_id, "[RL]")) %>%
   group_by(shoe_id_num, shoe) %>%
-  filter(date == min(date))
+  filter(date == min(date)) %>%
+  filter(row_number() == 1)
 
 file.copy(template_imgs$file, file.path("extra", "template_source_images", basename(template_imgs$file)))
 
