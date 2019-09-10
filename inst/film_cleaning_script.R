@@ -60,3 +60,26 @@ imgs <- imgs %>%
 imgs <- imgs %>%
   mutate(cleaned = purrr::map2(norm, full_mask, function(x, y) as.Image(x*y + (1 - y)*median(x)))) %>%
   mutate(cleaned_thresh = purrr::map(cleaned, ~1 - thresh(1 - ., w = 150, h = 150, offset = .05)))
+
+imgs <- imgs %>%
+  group_by(shoe_id) %>%
+  mutate(date_order = order(date)) %>%
+  arrange(date_order, shoe_id)
+
+save_img_dir <- "~/Projects/CSAFE/2019-this_is_us/images/shoes/longitudinal/"
+
+png(file.path(save_img_dir, "Film_First9_Original.png"), width = 6000, height = 6000, res = 600)
+par(mfrow = c(4, 9))
+purrr::map(imgs$orig, plot)
+dev.off()
+
+
+png(file.path(save_img_dir, "Film_First9_Cleaned.png"), width = 6000, height = 6000, res = 600)
+par(mfrow = c(4, 9))
+purrr::map(imgs$cleaned, plot)
+dev.off()
+
+png(file.path(save_img_dir, "Film_First9_Cleaned_Thresholded.png"), width = 6000, height = 6000, res = 600)
+par(mfrow = c(4, 9))
+purrr::map(imgs$cleaned_thresh, plot)
+dev.off()
