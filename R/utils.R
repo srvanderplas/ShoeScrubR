@@ -4,14 +4,16 @@
 #' @param filter_val value(s) of pixels to remove
 #' @export
 image_to_df <- function(img, filter_val = 0) {
-  tmp <- img %>%
+  tmp <- suppressMessages({
+    img %>%
     EBImage::imageData() %>%
-    tibble::as_tibble(.name_repair = "unique") %>%
+    tibble::as_tibble(., .name_repair = "unique") %>%
     dplyr::mutate(row = 1:dplyr::n()) %>%
-    magrittr::set_names(str_replace(names(.), "\\.{1,}", "")) %>%
+    magrittr::set_names(gsub(x = names(.), pattern = "\\.{1,}", replacement = "")) %>%
     tidyr::gather(key = col, val = val, -row) %>%
     dplyr::mutate(col = as.numeric(col)) %>%
     dplyr::mutate(row = -row)
+  })
 
   if (is.null(filter_val)) tmp
 
