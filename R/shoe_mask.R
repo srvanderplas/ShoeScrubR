@@ -217,8 +217,9 @@ radial_mask_img <- function(im, nest = T, ...) {
 #' Make mask image
 radial_mask <- function(dims, ...) {
   tmp <- radial_mask_df(dims = dims, ...)
-  im <- as.Image(matrix(0, nrow = dims[1], ncol = dims[2]))
-  im[tmp$row * dims[2] + tmp$col] <- 1
+  im <- matrix(0, nrow = dims[1], ncol = dims[2])
+  im[cbind(tmp$row, tmp$col)] <- 1
+  im <- Image(im)
   im
 }
 
