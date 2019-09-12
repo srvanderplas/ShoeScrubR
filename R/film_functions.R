@@ -21,30 +21,32 @@ film_mask <- function(img, blur = 45, w = 100, h = 100, offset = 0.0125) {
 
 #' Prunes small, disjoint regions from the mask
 #'
-#' @param img image, labeled using EBImage::bwlabel() or other similar function
-#' @param prop_limit areas which are smaller than this proportion of the image will be pruned if they are disjoint
+#' @param mask image mask with disjoint regions labeled using EBImage::bwlabel()
+#'        or other similar function
+#' @param prop_limit areas which are smaller than this proportion of the image
+#'        will be pruned if they are disjoint
 #'
 #' @export
-film_prune <- function(img, prop_limit = 0.02) {
-  counts <- table(img)
-  categories <- sort(unique(as.numeric(img)))
+film_prune <- function(mask, prop_limit = 0.02) {
+  counts <- table(mask)
+  categories <- sort(unique(as.numeric(mask)))
   prop <- counts/sum(counts)
   cat_replace <- categories[prop < prop_limit]
-  img[img %in% cat_replace] <- 0
-  img
+  mask[mask %in% cat_replace] <- 0
+  mask
 } # Get rid of really small areas - assumes large areas have merged...
 
 #' Cleans up initial mask using dilation, erosion, and pruning of small regions
 #'
-#' @param img binary image (usually from film_mask)
+#' @param mask binary image (usually from film_mask)
 #' @param d1 diameter to use for mask erosion
 #' @param d2 diameter to use for mask dilation
 #' @param prop maximum proportion of the image which can be pruned
 #' @export
-film_mask_clean <- function(img, d1 = 5, d2 = 91, prop = 1.5*pi*d2^2/length(img)) {
+film_mask_clean <- function(mask, d1 = 5, d2 = 91, prop = 1.5*pi*d2^2/length(mask)) {
   f1 <- makeBrush(d1, shape = "disc")
   f2 <- makeBrush(d2, shape = "disc")
-  img %>%
+  mask %>%
     EBImage::erode(f1) %>%
     EBImage::dilate(f2) %>%
     EBImage::bwlabel() %>%
@@ -152,5 +154,5 @@ film_expand_mask_alt <- function(mask, expand = 51) {
     test_mat[min(ne0):max(ne0), j] <- test_mat[min(ne0):max(ne0), j]  + 1
   }
 
-  test_mat == max(test_mat)
+  test_mat > 0
 }
