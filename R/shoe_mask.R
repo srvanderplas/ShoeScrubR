@@ -189,6 +189,13 @@ expand_angles <- function(theta_res = 2.5, theta_range = c(-5, 5), img_res = 10*
 
 get_max_radius <- function(x, ...) UseMethod("get_max_radius", x)
 
+get_max_radius.numeric <- function(x, cent_offset = NULL, ...) {
+  center <- floor(x/2)
+  if (!is.null(cent_offset)) center <- center + cent_offset
+
+  return(round(pmax(sqrt(sum((x - center)^2)), sqrt(sum((1 - center)^2)))))
+}
+
 get_max_radius.integer <- function(x, cent_offset = NULL, ...) {
   center <- floor(x/2)
   if (!is.null(cent_offset)) center <- center + cent_offset
@@ -224,7 +231,9 @@ radial_mask <- function(dims, ...) {
 }
 
 #' Helper function - create data frame of mask coordinates given center, dims, slopes
-radial_mask_df <- function(dims, slopes = seq(-90, 90, 5), px = 5, cent_offset = NULL) {
+radial_mask_df <- function(dims, slopes = seq(-90, 90, 5),
+                           expandBrush = EBImage::makeBrush(5, "disc"),
+                           cent_offset = NULL) {
 
   # Center arg allows for some "jittering" of what the image center really is --
   # will make optimization faster?
@@ -236,18 +245,33 @@ radial_mask_df <- function(dims, slopes = seq(-90, 90, 5), px = 5, cent_offset =
   px_rad <- round((px - 1)/2)
 
   tmp <- tidyr::crossing(slope = slopes,
-                  r = seq(-max_radius, max_radius, by = 1),
-                  offset = seq(-px_rad, px_rad, by = 1)) %>%
+                  r = seq(-max_radius, max_radius, by = 1)) %>%
     dplyr::mutate(theta = slope/180*pi) %>%
-    dplyr::mutate(row = center[1] + offset + round(r*sin(theta)),
-                  col = center[2] + offset + round(r*cos(theta))) %>%
+    dplyr::mutate(row = center[1] + round(r*sin(theta)),
+                  col = center[2] + round(r*cos(theta))) %>%
+    unique() %>%
     dplyr::filter(col <= dims[2], row <= dims[1], row > 0, col > 0)
 
+  expandBrush_df <- image_to_df(expandBrush) %>%
+    dplyr::mutate(row = row + ceiling(max(abs(row))/2),
+                  col = col - ceiling(max(col)/2))
+
+  tmp2 <- tmp %>%
+    dplyr::mutate(expanded = purrr::map2(row, col,
+                                  function(x, y) dplyr::select(expandBrush_df, row, col) %>%
+                                    dplyr::mutate(r.index = 1:n(),
+                                                  row = row + x,
+                                                  col = col + y))) %>%
+    dplyr::select(-row, -col) %>%
+    tidyr::unnest(expanded) %>%
+    dplyr::filter(col <= dims[2], row <= dims[1], row > 0, col > 0)
+
+  tmp2
 }
 
 #' Function to get distance from line datasets
 mask_line_distance <- function(mask_data, img_data) {
-  inner_join(mask_data, img_data, by = "r") %>%
+  inner_join(mask_data, img_data, by = c("r", "r.index")) %>%
     summarize(sum_white_in_mask = sum(img_val*mask_val, na.rm = T),
               sum_white_out_mask = sum(img_val*(1-mask_val), na.rm = T))
 }
