@@ -242,8 +242,6 @@ radial_mask_df <- function(dims, slopes = seq(-90, 90, 5),
 
   max_radius <- get_max_radius(dims, cent_offset = cent_offset)
 
-  px_rad <- round((px - 1)/2)
-
   tmp <- tidyr::crossing(slope = slopes,
                   r = seq(-max_radius, max_radius, by = 1)) %>%
     dplyr::mutate(theta = slope/180*pi) %>%
@@ -253,8 +251,8 @@ radial_mask_df <- function(dims, slopes = seq(-90, 90, 5),
     dplyr::filter(col <= dims[2], row <= dims[1], row > 0, col > 0)
 
   expandBrush_df <- image_to_df(expandBrush) %>%
-    dplyr::mutate(row = row + ceiling(max(abs(row))/2),
-                  col = col - ceiling(max(col)/2))
+    dplyr::mutate(row = row - median(row),
+                  col = col - median(col))
 
   tmp2 <- tmp %>%
     dplyr::mutate(expanded = purrr::map2(row, col,
