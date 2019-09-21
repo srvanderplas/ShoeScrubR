@@ -2,32 +2,40 @@
 #'
 #' @param img image
 #' @param filter_val value(s) of pixels to remove
+#' @param row_neg negate the rows so that the image is "right side up"?
 #' @export
-image_to_df <- function(img, filter_val = 0) {
-  tmp <- suppressMessages({
-    img %>%
-    EBImage::imageData() %>%
-    tibble::as_tibble(., .name_repair = "unique") %>%
-    dplyr::mutate(row = 1:dplyr::n()) %>%
-    magrittr::set_names(gsub(x = names(.), pattern = "\\.{1,}", replacement = "")) %>%
-    tidyr::gather(key = col, val = val, -row) %>%
-    dplyr::mutate(col = as.numeric(col)) %>%
-    dplyr::mutate(row = -row)
-  })
+image_to_df <- function(img, filter_val = 0, row_neg = F) {
+  imdim <- dim(img)
+  df <- cbind(row = c(1, -1)[row_neg + 1] * (floor((1:length(img))/imdim[2]) + 1),
+              col = (1:length(img)) %% imdim[2] + 1,
+              frame = (1:length(img) %% (imdim[1]*imdim[2])) + 1,
+              value = as.vector(img))
 
-  if (is.null(filter_val)) tmp
+  if (!is.null(filter_val)) {
+    df <- df[df[,4] != filter_val,]
+  }
 
-  tmp %>%
-    dplyr::filter(!val %in% filter_val)
+  as.data.frame(df)
 }
-
 
 #' Pad image so that specified coordinates are in the center of the image
 #'
 #' @param img image
 #' @param center coordinates describing the desired "center" of the image (row, col)
-#' @param value value to use for padding
+#' @param value fill value to use for padding the image.
+#'              If value has the same length as the number of frames in the
+#'              image, it will be applied frame-wise.
 #' @export
+#' @examples
+#' par(mfrow = c(1, 2))
+#' im <- EBImage::readImage(system.file('images', 'nuclei.tif', package='EBImage'))[,,1:3]
+#' EBImage::colorMode(im) <- "Color"
+#' dim(im)
+#' plot(im)
+#'
+#' im_pad <- pad_to_center(im, center = c(200, 200), value = c(0, 1, 0))
+#' dim(im_pad)
+#' plot(im_pad, all = T)
 pad_to_center <- function(img, center = round(dim(img)/2), value = 0) {
   if (sum(center %% 1 > 0) > 0) {
     warning("non-integer center coordinates will be rounded to the nearest integer")
@@ -37,7 +45,7 @@ pad_to_center <- function(img, center = round(dim(img)/2), value = 0) {
   center <- abs(center)
   if (sum(center <= 0) != 0) stop("center coordinates must be nonzero.")
 
-  dist_bottom_right <- dim(img) - center
+  dist_bottom_right <- dim(img)[1:2] - center
   dist_top_left <- center
   padding <- dist_bottom_right - dist_top_left
   pad_top <- pmax(0, padding[1])
@@ -55,15 +63,189 @@ pad_to_center <- function(img, center = round(dim(img)/2), value = 0) {
 #' @param bottom number of pixels to add to the bottom
 #' @param left number of pixels to add to the left
 #' @param right number of pixels to add to the right
-#' @param value value to pad with
+#' @param value fill value to use for padding the image.
+#'              If value has the same length as the number of frames in the
+#'              image, it will be applied frame-wise.
 #' @export
+#' @importFrom EBImage getFrames colorMode Image
+#' @importFrom abind abind
+#' @examples
+#' par(mfrow = c(1, 2))
+#' im <- EBImage::readImage(system.file('images', 'nuclei.tif', package='EBImage'))[,,1:3]
+#' EBImage::colorMode(im) <- "Color"
+#' dim(im)
+#' plot(im)
+#'
+#' im_pad <- pad(im, top = 15, bottom = 10, left = 5, right = 0, value = c(0, 1, 0))
+#' dim(im_pad)
+#' plot(im_pad)
 pad <- function(img, top = 0, bottom = 0, left = 0, right = 0, value = 0) {
+  y <- EBImage::getFrames(img)
+
+  y <- mapply(pad_frame, y, value,
+              MoreArgs = list(top = top, bottom = bottom,
+                              left = left, right = right), SIMPLIFY = F)
+
+  abind::abind(y, along = length(dim(img)), new.names = dimnames(img)) %>%
+    EBImage::Image(colormode = EBImage::colorMode(img))
+
+}
+
+pad_frame <- function(x, top = 0, bottom = 0, left = 0, right = 0, value = 0) {
   rbind(
-    matrix(value, nrow = left, ncol = ncol(img) + top + bottom),
-    cbind(matrix(value, ncol = top, nrow = nrow(img)),
-          img,
-          matrix(value, ncol = bottom, nrow = nrow(img))),
-    matrix(value, nrow = right, ncol = ncol(img) + top + bottom)
+    matrix(value, nrow = left, ncol = ncol(x) + top + bottom),
+    cbind(matrix(value, ncol = top, nrow = nrow(x)),
+          x,
+          matrix(value, ncol = bottom, nrow = nrow(x))),
+    matrix(value, nrow = right, ncol = ncol(x) + top + bottom)
   ) %>%
-    Image()
+    EBImage::Image()
+}
+
+
+#' Image pyramid
+#'
+#' @param img image (or list of images). If image list is named, resulting
+#'            tibble will have an extra column, img_name.
+#' @param scale vector of numeric scaling factors
+#' @return tibble containing columns img, scale, dim, and (if original image
+#'         list is named) img_name. The img column will contain the scaled image
+#' @export
+img_pyramid <- function(img, scale, ...) {
+
+  imgdf <- tibble::tibble(img = img)
+  if (!is.null(names(img))) {
+    imgdf$img_name <- names(img) %>% make.unique()
+  }
+
+  imgdf <- tidyr::crossing(imgdf, scale = scale) %>%
+    dplyr::mutate(
+      dim = purrr::map2(img, scale, ~floor(dim(.x)/.y)),
+      img = purrr::map2(img, dim, ~EBImage::resize(.x, w = .y[1], h = .y[2]))
+    )
+
+  stopifnot(c("img", "scale", "dim") %in% names(imgdf))
+
+  return(imgdf)
+}
+
+#' Automatically resize image to a specific size - crop or pad as necessary
+#'
+#' This function resizes the image in rows first, and then columns. If the
+#' final dimension is smaller than the current dimension, the offset which
+#' minimizes the distance between the average pixel value of the middle 2/3 of
+#' the original image and the average pixel value of the new image will be used.
+#' If the final dimension is larger than the current dimension, the image will
+#' be symmetrically padded on that dimension with pixels of the value specified
+#' or (if not specified) the median pixel value of the 10 outmost rows/columns
+#' of the image. This function operates with the assumption that the center of
+#' the image contains the majority of the useful information.
+#'
+#' @param img image. If img has more than one frame (color or otherwise), the
+#'          operation will be performed on each frame of the image separately.
+#' @param final_dims numerical vector of length two giving the width and height
+#'                   of the output image, respectively.
+#' @param value fill value to use for padding the image if necessary (if NULL,
+#'              will be automatically set to the median value of the 10 pixels
+#'              on the left and right edge of the image). If value has the same
+#'              length as the number of frames in img, value will be applied
+#'              frame-wise.
+#' @export
+#' @importFrom EBImage getFrames colorMode Image
+#' @importFrom abind abind
+#' @examples
+#'
+#' par(mfrow = c(1, 3))
+#' im <- EBImage::readImage(system.file('images', 'nuclei.tif', package='EBImage'))
+#' dim(im)
+#' plot(im, all = T)
+#'
+#' im_sm <- auto_resize_img(im, c(510, 490))
+#' dim(im_sm)
+#' plot(im_sm, all = T)
+#'
+#' im_big <- auto_resize_img(im, c(510, 550), value = c(0, .25, .5, .75))
+#' dim(im_big)
+#' plot(im_big, all = T)
+auto_resize_img <- function(img, final_dims, value = NULL) {
+  y <- EBImage::getFrames(img)
+
+  if (is.null(value)) {
+    y <- lapply(y, auto_resize_frame, final_dims = final_dims, value = value)
+  } else {
+    y <- mapply(auto_resize_frame, y, value,
+                MoreArgs = list(final_dims = final_dims), SIMPLIFY = F)
+  }
+
+  abind::abind(y, along = length(dim(img)), new.names = dimnames(img)) %>%
+    EBImage::Image(colormode = EBImage::colorMode(img))
+}
+
+auto_resize_frame <- function(x, final_dims, value = NULL) {
+  img_dims <- dim(x)
+  diffs <- img_dims - final_dims
+
+  new_img <- x
+
+  # Rows first
+  if (diffs[1] > 0) {
+    # Need to crop
+    profile_row <- rowMeans(new_img)
+    # Get average of the middle 2/3 of the image
+    middle <- mean(profile_row[round(.16*length(profile_row)):round(.84*length(profile_row))])
+    # Get maximum offset size
+    max_offset <- abs(diffs[1])
+    # Calculate mean value of the cropped image given an offset of x
+    offset_vals <- sapply(1:max_offset, function(x) mean(profile_row[x:(x + final_dims[1] - 1)]))
+    # Find which offset is closest to the middle 2/3 of the image
+    best_offset <- which.min((middle - offset_vals)^2)
+    # Crop using the best offset
+    new_img <- new_img[best_offset:(best_offset + final_dims[1] - 1), ]
+  } else if (diffs[1] < 0) {
+    # Need to pad
+    # Get pad value - median pixel from 10 rows on each edge of the image
+    if (is.null(value)) {
+      value <- median(new_img[c(1:10,(img_dims[1] - 10):img_dims[1]),])
+    }
+    # Create new image
+    temp_img <- matrix(value, nrow = final_dims[1], ncol = ncol(new_img)) %>% EBImage::as.Image()
+    # Determine offset:
+    offset <- floor(abs(diffs[1]/2))
+    # Add in old values
+    temp_img[offset:(img_dims[1] + offset - 1), ] <- new_img
+    # Save bigger image as the new_img object
+    new_img <- temp_img
+  }
+
+  # Cols next
+  if (diffs[2] > 0) {
+    # Need to crop
+    profile_col <- colMeans(new_img)
+    # Get average of the middle 2/3 of the image
+    middle <- mean(profile_col[round(.16*length(profile_col)):round(.84*length(profile_col))])
+    # Get maximum offset size
+    max_offset <- abs(diffs[2])
+    # Calculate mean value of the cropped image given an offset of x
+    offset_vals <- sapply(1:max_offset, function(x) mean(profile_col[x:(x + final_dims[2] - 1)]))
+    # Find which offset is closest to the middle 2/3 of the image
+    best_offset <- which.min((middle - offset_vals)^2)
+    # Crop using the best offset
+    new_img <- new_img[, best_offset:(best_offset + final_dims[2] - 1)]
+  } else if (diffs[2] < 0) {
+    # Need to pad
+    # Get pad value - median pixel from 10 cols on each edge of the image
+    if (is.null(value)) {
+      value <- median(new_img[, c(1:10,(img_dims[2] - 10):img_dims[2])])
+    }
+    # Create new image
+    temp_img <- matrix(value, nrow = nrow(new_img), ncol = final_dims[2]) %>% EBImage::as.Image()
+    # Determine offset:
+    offset <- floor(abs(diffs[2]/2))
+    # Add in old values
+    temp_img[, offset:(img_dims[2] + offset - 1)] <- new_img
+    # Save bigger image as the new_img object
+    new_img <- temp_img
+  }
+
+  new_img
 }
