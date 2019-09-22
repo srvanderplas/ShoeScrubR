@@ -62,6 +62,7 @@ align_prcomp <- function(img = NULL, img_df = NULL, weighted = F, ...) {
     img_df$row <- img_df$row - rowmean
     img_df$col <- img_df$col - colmean
     weight <- img_df$value/sum(img_df$value)
+    center <- c(rowmean, colmean)
   } else {
     weight <- 1/nrow(img_df)
   }
@@ -69,6 +70,8 @@ align_prcomp <- function(img = NULL, img_df = NULL, weighted = F, ...) {
   df <- img_df[,c("row", "col")] %>% as.matrix()
 
   pca <- prcomp(df*sqrt(weight), center = F, scale = F)
+  if (hasName(img_df, "value") & weighted) pca$center <- c(rowmean, colmean)
+  # pca <- prcomp(df, center = T, scale = F)
   # angle <- pca$rotation[2,1] %>% acos() %>% `*`(180/pi)
   #
   # angle
