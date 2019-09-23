@@ -6,16 +6,22 @@
 #' @export
 image_to_df <- function(img, filter_val = 0, row_neg = F) {
   imdim <- dim(img)
-  df <- cbind(row = c(1, -1)[row_neg + 1] * (floor((1:length(img))/imdim[2]) + 1),
-              col = (1:length(img)) %% imdim[2] + 1,
-              frame = (1:length(img) %% (imdim[1]*imdim[2])) + 1,
-              value = as.vector(img))
+  px_idx <- 0:(length(img) - 1)
+  df <- cbind(
+    row = px_idx %% imdim[1] + 1,
+    col = c(1, -1)[row_neg + 1] * (floor(px_idx/imdim[1]) + 1),
+    frame = floor(px_idx/(imdim[1]*imdim[2])) + 1,
+    value = as.vector(img))
 
   if (!is.null(filter_val)) {
     df <- df[df[,4] != filter_val,]
   }
 
-  as.data.frame(df)
+  res <- as.data.frame(df)
+  attr(res, "operation") <- append(attr(img, "operation"),
+                                   list(list(type = "convert to df",
+                                        filter_val = 0)))
+  res
 }
 
 #' Pad image so that specified coordinates are in the center of the image
