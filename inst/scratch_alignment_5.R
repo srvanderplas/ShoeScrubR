@@ -47,29 +47,24 @@ im_px_mode <- c(1, 0, 0, 0, 0, 0)
 im_list_pad <- purrr::map2(im_list, im_px_mode, ~pad_to_center(img = .x, value = .y, center = img_center))
 
 pyramid <- img_pyramid(im_list_pad, scale = c(1, 4, 8, 16, 32)) %>%
-  mutate(df = purrr::map(img, image_to_df))
-
-
-
-pyramid <- pyramid %>%
-  mutate(rot_angle_prcomp = purrr::map_dbl(df, align_prcomp)) %>%
-  unnest(rot_angle_prcomp)
+  mutate(df = purrr::map(img, image_to_df)) %>%
+  mutate(rot_angle_prcomp = purrr::map_dbl(df, align_prcomp))
 
 mask_imgs <- pyramid %>%
-  filter(type %in% c("centered_mask", "thresh")) %>%
-  mutate(rot_img = purrr::map2(ims, rot_angle_prcomp, ~EBImage::rotate(.x, angle = .y, output.dim = dim(.x)))) %>%
+  filter(img_name %in% c("centered_mask", "thresh")) %>%
+  mutate(rot_img = purrr::map2(img, rot_angle_prcomp, ~EBImage::rotate(.x, angle = .y, output.dim = dim(.x)))) %>%
   mutate(rot_center = purrr::map(rot_img, . %>%
                                    image_to_df() %>%
                                    summarize(row = round(mean(row)), col = round(mean(col))) %>%
                                    unlist()))
 
 masking_img <- mask_imgs %>%
-  select(scale_factor, type, rot_img) %>%
-  tidyr::spread(key = type, value = rot_img) %>%
+  select(scale, img_name, rot_img) %>%
+  tidyr::spread(key = img_name, value = rot_img) %>%
   left_join(
-    select(mask_imgs, scale_factor, type, rot_center) %>%
-      mutate(type = paste0(type, "_rot_center")) %>%
-      tidyr::spread(key = type, value = rot_center) %>%
+    select(mask_imgs, scale, img_name, rot_center) %>%
+      mutate(img_name = paste0(img_name, "_rot_center")) %>%
+      tidyr::spread(key = img_name, value = rot_center) %>%
       mutate(mask_shift = purrr::map2(centered_mask_rot_center, thresh_rot_center, ~.x - .y)) %>%
       select(-matches("rot_center"))
   ) %>%
@@ -77,8 +72,8 @@ masking_img <- mask_imgs %>%
 
 
 masking_img_2 <- masking_img %>%
-  select(scale_factor, mask = recentered_mask, img = thresh) %>%
-  mutate(by = round(40/(scale_factor)))
+  select(scale, mask = recentered_mask, img = thresh) %>%
+  mutate(by = round(40/(scale)))
 
 
 
@@ -96,28 +91,28 @@ get_offsets <- function(dims, by = 2, range = list(width = c(.3, .7), height = c
 }
 
 tmp <- masking_img_2 %>%
-  filter(scale_factor > 5) %>%
+  filter(scale > 5) %>%
   mutate(offsets = map2(img, by, ~get_offsets(dim(.x), by = .y))) %>%
-  unnest(offsets, .drop = F) %>%
+  unnest(offsets) %>%
   mutate(t_mask = map2(mask, offset, ~ translate(.x, -as.numeric(unlist(.y)), bg.col = 0))) %>%
   mutate(overlap = purrr::map2_dbl(img,t_mask, ~(sum(.x*.y)/sum(.x)))) %>%
-  group_by(scale_factor) %>%
+  group_by(scale) %>%
   arrange(desc(overlap)) %>%
   unnest(offset) %>%
   filter(row_number() <= 1) %>%
-  arrange(desc(scale_factor))
+  arrange(desc(scale))
 
 tmp <- tmp %>%
-  arrange(desc(scale_factor)) %>%
+  arrange(desc(scale)) %>%
   mutate(color_img = purrr::map2(img, t_mask, ~rgbImage(red = .x*.y, green = .x, blue = .y))) %>%
-  mutate(label = purrr::pmap_chr(list(overlap, row, col, scale_factor), ~sprintf("Scale:1/%d\n%.1f%% overlap,\nOS = (%d, %d)",..4,  ..1*100, round(..2)*..4, round(..3)*..4)))
+  mutate(label = purrr::pmap_chr(list(overlap, row, col, scale), ~sprintf("Scale:1/%d\n%.1f%% overlap,\nOS = (%d, %d)",..4,  ..1*100, round(..2)*..4, round(..3)*..4)))
 
 # png(filename = file.path(img_output_dir, "ShiftPyramids.png"), width = 300*nrow(tmp), height = 300*2*1, units = "px")
-# par(mfrow = c(1, nrow(tmp)))
-# purrr::map2(tmp$color_img, tmp$label, ~{
-#   plot(.x)
-#   text(0, 0, labels = .y, col = "white", adj = c(-.1, 1.2))
-# })
+par(mfrow = c(1, nrow(tmp)))
+purrr::map2(tmp$color_img, tmp$label, ~{
+  plot(.x)
+  text(0, 0, labels = .y, col = "white", adj = c(-.1, 1.2))
+})
 # dev.off()
 
 get_angles <- function(dims, by = 1, range = c(-5, 5), centered = T) {
@@ -130,7 +125,7 @@ get_angles <- function(dims, by = 1, range = c(-5, 5), centered = T) {
 
 tmp2 <- tmp %>%
   ungroup() %>%
-  select(scale_factor, img, mask = t_mask, t_overlap = overlap) %>%
+  select(scale, img, mask = t_mask, t_overlap = overlap) %>%
   mutate(angles = map(img, ~get_angles(dim(.)))) %>%
   unnest(angles, .drop = F)
 
@@ -139,11 +134,11 @@ tmp <- tmp2 %>%
   mutate(r_mask = pmap(list(x = mask, angle = angle, output.dim = odim, output.origin = center) , rotate)) %>%
   mutate(overlap = purrr::map2_dbl(img, r_mask, ~(sum(.x*.y)/sum(.x)))) %>%
   mutate(color_img = purrr::map2(img, r_mask, ~rgbImage(red = .x*.y, green = .x, blue = .y))) %>%
-  group_by(scale_factor) %>%
+  group_by(scale) %>%
   arrange(desc(overlap)) %>%
   filter(row_number() <= 1) %>%
   ungroup() %>%
-  arrange(scale_factor)
+  arrange(scale)
 
 par(mfrow = c(3, 11))
 map(tmp$color_img, plot)
