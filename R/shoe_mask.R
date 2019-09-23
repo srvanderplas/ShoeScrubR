@@ -32,7 +32,7 @@ shoe_mask <- function(brand, size, foot, ppi = 300) {
   im <- EBImage::readImage(full_filename)
   scale <- ppi/200
   output_dim <- floor(dim(im)*scale)
-  EBImage::resize(im, w = output_dim[1], h = output_dim[2])
+  img_resize(im, w = output_dim[1], h = output_dim[2])
 }
 
 #' Align an image and a mask based on principal components
