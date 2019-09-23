@@ -70,12 +70,30 @@ align_prcomp <- function(img = NULL, weighted = T, ...) {
 
   df <- img_df[,c("row", "col")] %>% as.matrix()
 
-  pca <- prcomp(df*sqrt(weight), center = F, scale = F)
-  if (hasName(img_df, "value") & weighted) pca$center <- c(rowmean, colmean)
-  # pca <- prcomp(df, center = T, scale = F)
-  # angle <- pca$rotation[2,1] %>% acos() %>% `*`(180/pi)
-  #
-  # angle
+  pca <- prcomp(df*sqrt(weight), center = center, scale = F)
+
+  if (sum(sign(pca$rotation)) < -1) pca$rotation <- pca$rotation * -1 # Make most PC vals positive
+
+  # if (!center) pca$center <- center_vals
+
+  # pca
+
+  pca_to_angle(pca)
+}
+
+
+pca_to_angle <- function(rot) {
+  if (hasName(rot, "rotation")) {
+    rot <- rot$rotation
+  }
+  stopifnot(all.equal(dim(rot), c(2,2)))
+
+  if (sum(sign(rot)) < -1) rot <- rot * -1 # Make most PC vals positive
+
+  if (abs(rot[1,1]) > abs(rot[2,1])) mag <- asin(abs(rot[1,1])) else mag <- acos(abs(rot[2,1]))
+  if (sign(rot[1,1]) == sign(rot[2,1])) coef <- 1 else coef <- -1
+
+  return(mag*coef * 180/pi)
 }
 
 #' Weighted principal components analysis
