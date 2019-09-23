@@ -61,9 +61,11 @@ align_prcomp <- function(img = NULL, weighted = T, ...) {
     img_df$row <- img_df$row - rowmean
     img_df$col <- img_df$col - colmean
     weight <- img_df$value/sum(img_df$value)
-    center <- c(rowmean, colmean)
+    center_vals <- c(rowmean, colmean)
+    center <- F
   } else {
-    weight <- 1/nrow(img_df)
+    weight <- rep(1, nrow(img_df))
+    center <- T
   }
 
   df <- img_df[,c("row", "col")] %>% as.matrix()
