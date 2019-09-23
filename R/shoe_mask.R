@@ -96,6 +96,126 @@ pca_to_angle <- function(rot) {
   return(mag*coef * 180/pi)
 }
 
+#' Initial alignment of mask and image
 #'
+#' @param img Image - greyscale, white as background, black as signal
+#' @param mask Mask; white (signal) and black (bkgd)
+#' @param thresh_pars list of parameters to use to clean the original image
+#' @param exaggerate_pars list of parameters to use to exaggerate the original
+#'        image to a mask-like appearance
+#' @return list containing image and mask which have been aligned to center
+#'         value and rotated via principal components so that PC1 is the
+#'         positive y-axis.
+#' @export
+rough_align <- function(img, mask, thresh_pars = list(), exaggerate_pars = list()) {
+
+  if (!all.equal(dim(img), dim(mask))) {
+    message("Auto-resizing mask to the size of image, preserving mask scaling")
+    mask <- auto_resize_img(mask, final_dims = dim(img))
+  }
+
+  thresh_pars$img <- img
+  thresh_img <- do.call("clean_initial_img", thresh_pars)
+
+  exaggerate_pars$img <- img
+  exag_img <- do.call("exaggerate_img_to_mask", exaggerate_pars)
+
+
+
+  img_center <- binary_center(exag_img)
+  mask_center <- binary_center(mask)
+
+  trans_dist <- mask_center - img_center
+  centered_mask <- img_translate(mask, -trans_dist, bg.col = 0, output.dim = dim(img))
+  mask_center <- binary_center(centered_mask)
+
+  im_mode <- img_mode(img)
+
+  padded_img <- img_pad_to_center(img, img_center, value = im_mode)
+  padded_exag_img <- img_pad_to_center(exag_img, img_center)
+  padded_thresh <- img_pad_to_center(thresh_img, img_center)
+  padded_mask <- img_pad_to_center(centered_mask, img_center)
+
+  img_angle <- align_prcomp(padded_exag_img)
+  mask_angle <- align_prcomp(padded_mask)
+
+  img_rot <- img_rotate(padded_img, img_angle, bg.col = im_mode,
+                        output.dim = dim(padded_img),
+                        output.origin = img_center)
+  thresh_rot <- img_rotate(padded_thresh, img_angle,
+                           output.dim = dim(padded_img),
+                           output.origin = img_center)
+  mask_rot <- img_rotate(padded_mask, mask_angle,
+                         output.dim = dim(padded_img),
+                         output.origin = img_center)
+  tibble(name = c("img", "thresh", "mask"),
+         img = list(img_rot, thresh_rot, mask_rot))
 }
 
+#' Invert, smooth, and threshold an image
+#'
+#' @param img Image
+#' @param gaussian_d diameter of brush to use for gaussian blur
+#' @param threshold_val threshold value to use on normalized, inverted, blurred
+#'        image
+#' @export
+clean_initial_img <- function(img, gaussian_d = 25, threshold_val = .15) {
+  img %>%
+    EBImage::filter2(EBImage::makeBrush(gaussian_d, "gaussian")) %>%
+    EBImage::normalize() %>%
+    magrittr::subtract(1, .) %>%
+    (function(.) . > threshold_val)
+}
+
+#' Exaggerate an image to a mask-like appearance
+#'
+#' @param img Image
+#' @param gaussian_d diameter of brush to use for gaussian blur
+#' @param threshold_val threshold value to use on normalized, inverted, blurred
+#'        image
+#' @param opening_d diameter to use for image opening (despeckling)
+#' @param closing_d diameter to use for image closing (exaggeration)
+#' @export
+exaggerate_img_to_mask <- function(img, gaussian_d = 125, threshold_val = .125,
+                                   opening_d = 7, closing_d = 301) {
+  clean_initial_img(img, gaussian_d = gaussian_d, threshold_val = threshold_val) %>%
+    EBImage::opening(EBImage::makeBrush(opening_d, "disc")) %>%
+    EBImage::closing(EBImage::makeBrush(closing_d, "disc"))
+}
+
+#' Binary image center
+#'
+#' @param x image/matrix
+#' @export
+binary_center <- function(x) {
+  d1sum <- apply(x != 0, 1, sum)
+  d1sum <- d1sum/sum(d1sum)
+  d1sum <- sum((1:(dim(x)[1])) * d1sum)
+  d2sum <- apply(x != 0, 2, sum)
+  d2sum <- d2sum/sum(d2sum)
+  d2sum <- sum((1:(dim(x)[2])) * d2sum)
+
+  round(c(d1sum, d2sum))
+}
+
+#' Get most common pixel value (approx)
+#'
+#' @param img Image
+#' @param digits precision of numerical values
+#' @param size size of sample - if img has more than size pixels, it will be
+#'        reduced to a random sample of size before tabulation
+#' @export
+img_mode <- function(img, digits = 2, size = 50000) {
+  v <- img %>%
+    EBImage::normalize() %>%
+    EBImage::imageData() %>%
+    as.vector()
+
+  if (length(v) > size) v <- sample(v, size = size, replace = F)
+  v %>%
+    round(., digits = digits) %>%
+    table() %>%
+    sort(decreasing = T) %>%
+    names() %>% `[`(1) %>%
+    as.numeric()
+}
