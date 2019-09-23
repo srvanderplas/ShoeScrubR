@@ -96,25 +96,6 @@ pca_to_angle <- function(rot) {
   return(mag*coef * 180/pi)
 }
 
-#' Weighted principal components analysis
 #'
-#' @param
-wpca <- function(df, row.w = rep(1, nrow(df))/nrow(df))
-{
-  dfx <- df
-  row.w <- if (hasName(df, "value")) df$value else rep(1, nrow(df))
-  df <- df[,c("row", "col")] %>%
-    na.omit()
-  center <- apply(df, 2, function(v) sum(v * row.w)/sum(row.w))
-  df <- sweep(df, 2, center)
-
-  df <- as.matrix(df)
-  df.ori <- df
-  df <- df * sqrt(row.w)
-  df <- crossprod(df, df)
-
-  eig1 <- eigen(df, symmetric = TRUE)
-
-  acos(1 -eig1$vectors[1,which.max(eig1$values)]) * 180/pi
 }
 
