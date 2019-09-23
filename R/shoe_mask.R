@@ -40,19 +40,18 @@ shoe_mask <- function(brand, size, foot, ppi = 300) {
 #' One of img or img_df must be supplied. If img is supplied, additional
 #' arguments to img_to_df may also be supplied using ....
 #'
-#' Adapted from the dudi.pca function in the ade4 package, which performs
-#' weighted principal components analysis.
-#'
-#' @param img_df data frame of the locations of nonzero pixels in an image
-#'               (columns row, col, value*). Value is optional, and if supplied,
-#'               will be used to weight the results.
-#' @param img image
+#' @param img image or data frame of the locations of nonzero pixels in an image
+#'               (columns row, col, value*). If img is a data frame and has
+#'               column value, value will be used to weight the results.
 #' @param weighted should weighted calculation be used?
 #' @param ... additional arguments to image_to_df
-#'
-align_prcomp <- function(img = NULL, img_df = NULL, weighted = F, ...) {
-  if (!is.null(img) & is.null(img_df)) {
+#' @return angle to rotate the image by (in degrees)
+#' @export
+align_prcomp <- function(img = NULL, weighted = T, ...) {
+  if (EBImage::is.Image(img)) {
     img_df <- image_to_df(img, ...)
+  } else {
+    img_df <- img
   }
   stopifnot(!is.null(img_df))
 
