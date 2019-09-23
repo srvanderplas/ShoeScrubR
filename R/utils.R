@@ -249,8 +249,15 @@ auto_resize_img <- function(img, final_dims, value = NULL) {
                 MoreArgs = list(final_dims = final_dims), SIMPLIFY = F)
   }
 
-  abind::abind(y, along = length(dim(img)), new.names = dimnames(img)) %>%
+  res <- abind::abind(y, along = length(dim(img)), new.names = dimnames(img)) %>%
     EBImage::Image(colormode = EBImage::colorMode(img))
+
+  attr(res, "operation") <- append(attr(img, "operation"),
+                                   list(list(type = "resize",
+                                        orig_dim = dim(img),
+                                        final_dim = dim(res),
+                                        value = value)))
+  res
 }
 
 auto_resize_frame <- function(x, final_dims, value = NULL) {
