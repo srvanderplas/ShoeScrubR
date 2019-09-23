@@ -42,13 +42,13 @@ image_to_df <- function(img, filter_val = 0, row_neg = F) {
 #' im_pad <- pad_to_center(im, center = c(200, 200), value = c(0, 1, 0))
 #' dim(im_pad)
 #' plot(im_pad, all = T)
-pad_to_center <- function(img, center = round(dim(img)/2), value = 0) {
+img_pad_to_center <- function(img, center = round(dim(img)/2), value = 0) {
   if (sum(center %% 1 > 0) > 0) {
     warning("non-integer center coordinates will be rounded to the nearest integer")
     center <- round(center)
   }
 
-  center <- abs(center)
+  # center <- abs(center)
   if (sum(center <= 0) != 0) stop("center coordinates must be nonzero.")
 
   dist_bottom_right <- dim(img)[1:2] - center
@@ -59,7 +59,7 @@ pad_to_center <- function(img, center = round(dim(img)/2), value = 0) {
   pad_left <- pmax(0, padding[2])
   pad_right <- pmax(0, -padding[2])
 
-  pad(img, top = pad_top, bottom = pad_bottom, left = pad_left, right = pad_right, value = value)
+  img_pad(img, top = pad_top, bottom = pad_bottom, left = pad_left, right = pad_right, value = value)
 }
 
 #' Pad an image
@@ -82,22 +82,28 @@ pad_to_center <- function(img, center = round(dim(img)/2), value = 0) {
 #' dim(im)
 #' plot(im)
 #'
-#' im_pad <- pad(im, top = 15, bottom = 10, left = 5, right = 0, value = c(0, 1, 0))
+#' im_pad <- img_pad(im, top = 15, bottom = 10, left = 5, right = 0, value = c(0, 1, 0))
 #' dim(im_pad)
 #' plot(im_pad)
-pad <- function(img, top = 0, bottom = 0, left = 0, right = 0, value = 0) {
+img_pad <- function(img, top = 0, bottom = 0, left = 0, right = 0, value = 0) {
   y <- EBImage::getFrames(img)
 
-  y <- mapply(pad_frame, y, value,
+  y <- mapply(img_pad_frame, y, value,
               MoreArgs = list(top = top, bottom = bottom,
                               left = left, right = right), SIMPLIFY = F)
 
-  abind::abind(y, along = length(dim(img)), new.names = dimnames(img)) %>%
+  res <- abind::abind(y, along = length(dim(img)), new.names = dimnames(img)) %>%
     EBImage::Image(colormode = EBImage::colorMode(img))
+  attr(res, "operation") <- append(attr(img, "operation"),
+                                   list(list(type = "pad",
+                                        top_bottom = c(top, bottom),
+                                        left_right = c(left, right),
+                                        value = value)))
 
+  res
 }
 
-pad_frame <- function(x, top = 0, bottom = 0, left = 0, right = 0, value = 0) {
+img_pad_frame <- function(x, top = 0, bottom = 0, left = 0, right = 0, value = 0) {
   rbind(
     matrix(value, nrow = left, ncol = ncol(x) + top + bottom),
     cbind(matrix(value, ncol = top, nrow = nrow(x)),
@@ -108,6 +114,66 @@ pad_frame <- function(x, top = 0, bottom = 0, left = 0, right = 0, value = 0) {
     EBImage::Image()
 }
 
+#' Resize an image (and record metadata)
+#'
+#' @param img Image
+#' @param ... additional arguments to EBImage::resize: width w, height h,
+#'        output.dim = c(w, h), output.origin = c(0, 0), antialias = F, ...
+#'        (other arguments to affine, including bg.col, antialias, filter)
+#' @return resized image with attribute "operation" that records the original
+#'         and final dimensions of the image
+#' @export
+img_resize <- function(img, ...) {
+  res <- EBImage::resize(img, ...)
+  args <- list(...)
+  attr(res, "operation") <- append(attr(img, "operation"),
+                                   list(list(type = "resize",
+                                        orig_dim = dim(img),
+                                        final_dim = dim(res),
+                                        other_args = args)))
+
+  res
+}
+
+#' Translate an image (and record metadata)
+#'
+#' @param img Image
+#' @param v translation vector (2 numbers)
+#' @param ... additional arguments to EBImage::translate: vector v, filter, ...
+#'        (other arguments to affine, including bg.col, antialias, filter)
+#' @return resized image with attribute "operation" that records the original
+#'         and final dimensions of the image
+#' @export
+img_translate <- function(img, v, ...) {
+  res <- EBImage::translate(img, v = v, ...)
+  args <- list(...)
+  attr(res, "operation") <- append(attr(img, "operation"),
+                                   list(list(type = "translate",
+                                        vector = v, other_args = args)))
+
+  res
+}
+
+#' Rotate an image (and record metadata)
+#'
+#' @param img Image
+#' @param angle rotation angle in degrees
+#' @param ... additional arguments to EBImage::rotate: output.dim,
+#'        output.origin, ... (other arguments to affine, including bg.col,
+#'        antialias, filter)
+#' @return resized image with attribute "operation" that records the original
+#'         and final dimensions of the image
+#' @export
+img_rotate <- function(img, angle, ...) {
+  res <- EBImage::rotate(img, angle = angle, ...)
+  args <- list(...)
+  attr(res, "operation") <- append(attr(img, "operation"),
+                                   list(list(type = "rotate",
+                                        angle = angle,
+                                        other_args = args)))
+
+  res
+}
 
 #' Image pyramid
 #'
