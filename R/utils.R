@@ -193,7 +193,7 @@ img_pyramid <- function(img, scale, ...) {
   imgdf <- tidyr::crossing(imgdf, scale = scale) %>%
     dplyr::mutate(
       dim = purrr::map2(img, scale, ~floor(dim(.x)/.y)),
-      img = purrr::map2(img, dim, ~EBImage::resize(.x, w = .y[1], h = .y[2]))
+      img = purrr::map2(img, dim, ~img_resize(.x, w = .y[1], h = .y[2]))
     )
 
   stopifnot(c("img", "scale", "dim") %in% names(imgdf))
