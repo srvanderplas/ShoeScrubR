@@ -114,42 +114,36 @@ rough_align <- function(img, mask, thresh_pars = list(), exaggerate_pars = list(
     mask <- auto_resize_img(mask, final_dims = dim(img))
   }
 
-  thresh_pars$img <- img
-  thresh_img <- do.call("clean_initial_img", thresh_pars)
 
   exaggerate_pars$img <- img
   exag_img <- do.call("exaggerate_img_to_mask", exaggerate_pars)
 
 
+  im_mode <- img_mode(img) # Get image fill color
 
-  img_center <- binary_center(exag_img)
-  mask_center <- binary_center(mask)
+  img_angle <- align_prcomp(exag_img)
+  mask_angle <- align_prcomp(mask)
+
+  img_align <- img_rotate(img, img_angle, bg.col = im_mode, output.dim = dim(img))
+  exag_align <- img_rotate(exag_img, img_angle, bg.col = 0, output.dim = dim(img))
+  mask_align <- img_rotate(mask, mask_angle, bg.col = 0, output.dim = dim(img))
+
+  img_center <- binary_center(exag_align)
+  mask_center <- binary_center(mask_align)
 
   trans_dist <- mask_center - img_center
-  centered_mask <- img_translate(mask, -trans_dist, bg.col = 0, output.dim = dim(img))
+  centered_mask <- img_translate(mask_align, -trans_dist, bg.col = 0, output.dim = dim(img))
   mask_center <- binary_center(centered_mask)
 
-  im_mode <- img_mode(img)
-
-  padded_img <- img_pad_to_center(img, img_center, value = im_mode)
-  padded_exag_img <- img_pad_to_center(exag_img, img_center)
-  padded_thresh <- img_pad_to_center(thresh_img, img_center)
+  padded_img <- img_pad_to_center(img_align, img_center, value = im_mode)
+  padded_exag_img <- img_pad_to_center(exag_align, img_center)
   padded_mask <- img_pad_to_center(centered_mask, img_center)
 
-  img_angle <- align_prcomp(padded_exag_img)
-  mask_angle <- align_prcomp(padded_mask)
+  thresh_pars$img <- padded_img
+  thresh_img <- do.call("clean_initial_img", thresh_pars)
 
-  img_rot <- img_rotate(padded_img, img_angle, bg.col = im_mode,
-                        output.dim = dim(padded_img),
-                        output.origin = img_center)
-  thresh_rot <- img_rotate(padded_thresh, img_angle,
-                           output.dim = dim(padded_img),
-                           output.origin = img_center)
-  mask_rot <- img_rotate(padded_mask, mask_angle,
-                         output.dim = dim(padded_img),
-                         output.origin = img_center)
   tibble(name = c("img", "thresh", "mask"),
-         img = list(img_rot, thresh_rot, mask_rot))
+         img = list(padded_img, thresh_img, padded_mask))
 }
 
 #' Invert, smooth, and threshold an image
