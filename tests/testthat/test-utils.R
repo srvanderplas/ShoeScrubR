@@ -60,3 +60,24 @@ test_that("img_translate works", {
   expect_equal(attr(translate_test, "operation"),
                list(list(type = "translate", vector = c(2, 1), other_args = list())))
 })
+
+
+test_that("img_crop works", {
+  test_img_crop <- img_crop(test_img, c(8, 6))
+  expect_equal(dim(test_img_crop), c(8, 6))
+  expect_equal(attr(test_img_crop, "operation"),
+               list(list(type = "crop", old_dim = dim(test_img),
+                         new_dim = c(8, 6),
+                         center = c(5, 4),
+                         top_corner = c(2, 2),
+                         bottom_corner = c(9, 7))))
+  test_img_crop2 <- img_crop(test_img, c(8, 6), c(4, 4))
+  expect_equal(dim(test_img_crop2), c(8, 6))
+  expect_equal(as.numeric(test_img_crop2[1,]), rep(0, 6))
+  expect_equal(attr(test_img_crop2, "operation"),
+               list(list(type = "crop", old_dim = dim(test_img),
+                         new_dim = c(8, 6),
+                         center = c(4, 4),
+                         top_corner = c(1, 2),
+                         bottom_corner = c(8, 7))))
+})

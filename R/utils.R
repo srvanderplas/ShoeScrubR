@@ -175,6 +175,61 @@ img_rotate <- function(img, angle, ...) {
   res
 }
 
+#' Crop an image (and record metadata)
+#'
+#' @param img Image or list of images
+#' @param dim New dimension of the image
+#' @param center point to use around which cropping is symmetrical
+#' @export
+img_crop <- function(img, dim, center = NULL) {
+  if (is.list(img)) {
+    return(lapply(img, img_crop, dim = dim))
+  }
+
+  stopifnot(EBImage::is.Image(img))
+  if (is.null(center)) center <- floor(dim(img)/2)
+
+  current_dim <- dim(img)[1:2] # handle extra frames
+  center <- center[1:2]
+
+  to_crop <- current_dim - dim[1:2]
+  if (all(to_crop == c(0, 0))) return(img)
+
+  left_top_prop <- center/current_dim
+  left_top <- floor(to_crop*left_top_prop)
+  right_bottom <- ceiling(to_crop*(1 - left_top_prop))
+
+  stopifnot(all.equal(to_crop, left_top + right_bottom)) # just to be sure
+
+  left_top_coord <- pmin(pmax(left_top + 1, c(1, 1)), current_dim)
+  right_bottom_coord <- pmin(pmax(current_dim - right_bottom, c(1, 1)), current_dim)
+
+  img_frames <- getFrames(img)
+
+  img_frame_crop <- mapply(crop_frame, img_frames,
+                           MoreArgs = list(left_top = left_top_coord,
+                                           right_bottom = right_bottom_coord),
+                           SIMPLIFY = F)
+
+  res <- abind::abind(img_frame_crop, along = length(dim(img)), new.names = dimnames(img)) %>%
+    EBImage::Image(colormode = EBImage::colorMode(img))
+  attr(res, "operation") <- append(attr(img, "operation"),
+                                   list(list(type = "crop",
+                                             old_dim = current_dim,
+                                             new_dim = dim,
+                                             center = center,
+                                             top_corner = left_top_coord,
+                                             bottom_corner = right_bottom_coord)))
+
+  res
+}
+
+crop_frame <- function(x, left_top, right_bottom) {
+  x[left_top[1]:right_bottom[1],left_top[2]:right_bottom[2]]
+}
+
+
+
 #' Image pyramid
 #'
 #' @param img image (or list of images). If image list is named, resulting
