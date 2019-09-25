@@ -43,6 +43,11 @@ image_to_df <- function(img, filter_val = 0, row_neg = F) {
 #' dim(im_pad)
 #' plot(im_pad, all = T)
 img_pad_to_center <- function(img, center = round(dim(img)/2), value = 0) {
+  if (is.list(img)) {
+    lapply(img, img_pad_to_size, size = size, value = value)
+  }
+  stopifnot(EBImage::is.Image(img))
+
   if (sum(center %% 1 > 0) > 0) {
     warning("non-integer center coordinates will be rounded to the nearest integer")
     center <- round(center)
@@ -86,6 +91,12 @@ img_pad_to_center <- function(img, center = round(dim(img)/2), value = 0) {
 #' dim(im_pad)
 #' plot(im_pad)
 img_pad <- function(img, top = 0, bottom = 0, left = 0, right = 0, value = 0) {
+  if (is.list(img)) {
+    return(lapply(img, img_pad, top = top, bottom = bottom, left = left,
+                  right = right, value = value))
+  }
+  stopifnot(EBImage::is.Image(img))
+
   y <- EBImage::getFrames(img)
 
   y <- mapply(img_pad_frame, y, value,
@@ -124,6 +135,11 @@ img_pad_frame <- function(x, top = 0, bottom = 0, left = 0, right = 0, value = 0
 #'         and final dimensions of the image
 #' @export
 img_resize <- function(img, ...) {
+  if (is.list(img)) {
+    return(lapply(img, img_resize, ...))
+  }
+  stopifnot(EBImage::is.Image(img))
+
   res <- EBImage::resize(img, ...)
   args <- list(...)
   attr(res, "operation") <- append(attr(img, "operation"),
@@ -145,6 +161,11 @@ img_resize <- function(img, ...) {
 #'         and final dimensions of the image
 #' @export
 img_translate <- function(img, v, ...) {
+  if (is.list(img)) {
+    return(lapply(img, img_translate, ...))
+  }
+  stopifnot(EBImage::is.Image(img))
+
   res <- EBImage::translate(img, v = v, ...)
   args <- list(...)
   attr(res, "operation") <- append(attr(img, "operation"),
@@ -165,6 +186,11 @@ img_translate <- function(img, v, ...) {
 #'         and final dimensions of the image
 #' @export
 img_rotate <- function(img, angle, ...) {
+  if (is.list(img)) {
+    return(lapply(img, img_rotate, angle = angle, ...))
+  }
+  stopifnot(EBImage::is.Image(img))
+
   res <- EBImage::rotate(img, angle = angle, ...)
   args <- list(...)
   attr(res, "operation") <- append(attr(img, "operation"),
