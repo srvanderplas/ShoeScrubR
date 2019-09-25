@@ -98,52 +98,79 @@ pca_to_angle <- function(rot) {
 
 #' Initial alignment of mask and image
 #'
-#' @param img Image - greyscale, white as background, black as signal
+#' @param img Image - greyscale, white(ish) as background, black as signal
 #' @param mask Mask; white (signal) and black (bkgd)
 #' @param thresh_pars list of parameters to use to clean the original image
 #' @param exaggerate_pars list of parameters to use to exaggerate the original
 #'        image to a mask-like appearance
+#' @param img_fill_value value to fill any image padding with; defaults to the
+#'        mode value (as calculated by \code{\link{img_mode}}).
 #' @return list containing image and mask which have been aligned to center
 #'         value and rotated via principal components so that PC1 is the
 #'         positive y-axis.
 #' @export
-rough_align <- function(img, mask, thresh_pars = list(), exaggerate_pars = list()) {
+rough_align <- function(img, mask, thresh_pars = list(), exaggerate_pars = list(),
+                        img_fill_value = img_mode(img)) {
 
   if (!all.equal(dim(img), dim(mask))) {
     message("Auto-resizing mask to the size of image, preserving mask scaling")
     mask <- auto_resize_img(mask, final_dims = dim(img))
   }
 
-
   exaggerate_pars$img <- img
   exag_img <- do.call("exaggerate_img_to_mask", exaggerate_pars)
 
-
-  im_mode <- img_mode(img) # Get image fill color
+  # plot(rgbImage(img, exag_img, mask))
 
   img_angle <- align_prcomp(exag_img)
   mask_angle <- align_prcomp(mask)
 
-  img_align <- img_rotate(img, img_angle, bg.col = im_mode, output.dim = dim(img))
+  img_align <- img_rotate(img, img_angle, bg.col = img_fill_value, output.dim = dim(img))
   exag_align <- img_rotate(exag_img, img_angle, bg.col = 0, output.dim = dim(img))
   mask_align <- img_rotate(mask, mask_angle, bg.col = 0, output.dim = dim(img))
 
+  # plot(rgbImage(img_align, exag_align, mask_align))
+
   img_center <- binary_center(exag_align)
-  mask_center <- binary_center(mask_align)
+  mask_center <- binary_center(mask_align, trim = F)
 
-  trans_dist <- mask_center - img_center
-  centered_mask <- img_translate(mask_align, -trans_dist, bg.col = 0, output.dim = dim(img))
-  mask_center <- binary_center(centered_mask)
+  mask_pad_left_top <- pmax(img_center, mask_center) - mask_center
+  mask_pad_right_bottom <- mask_center - pmin(img_center, mask_center)
 
-  padded_img <- img_pad_to_center(img_align, img_center, value = im_mode)
-  padded_exag_img <- img_pad_to_center(exag_align, img_center)
-  padded_mask <- img_pad_to_center(centered_mask, img_center)
+  img_pad_left_top <- pmax(img_center, mask_center) - img_center
+  img_pad_right_bottom <- img_center - pmin(img_center, mask_center)
+
+  if (!all.equal(img_center + img_pad_left_top,
+                 mask_center + mask_pad_left_top)) {
+    warning("Image center alignment appears to have failed")
+  }
+
+  padded_img <- img_pad(img_align,
+                        top = img_pad_left_top[2],
+                        left = img_pad_left_top[1],
+                        bottom = img_pad_right_bottom[2],
+                        right = img_pad_right_bottom[1],
+                        value = img_fill_value)
+  padded_exag_img <- img_pad(exag_align,
+                             top = img_pad_left_top[2],
+                             left = img_pad_left_top[1],
+                             bottom = img_pad_right_bottom[2],
+                             right = img_pad_right_bottom[1],
+                             value = 0)
+  padded_mask <- img_pad(mask,
+                         top = mask_pad_left_top[2],
+                         left = mask_pad_left_top[1],
+                         bottom = mask_pad_right_bottom[2],
+                         right = mask_pad_right_bottom[1],
+                         value = 0)
+
+  # plot(rgbImage(padded_img, padded_exag_img, padded_mask))
 
   thresh_pars$img <- padded_img
   thresh_img <- do.call("clean_initial_img", thresh_pars)
 
-  tibble(name = c("img", "thresh", "mask"),
-         img = list(padded_img, thresh_img, padded_mask))
+  tibble(name = c("img", "thresh", "exag_img", "mask"),
+         img = list(padded_img, thresh_img, padded_exag_img, padded_mask))
 }
 
 #' Invert, smooth, and threshold an image
@@ -154,10 +181,18 @@ rough_align <- function(img, mask, thresh_pars = list(), exaggerate_pars = list(
 #'        image
 #' @export
 clean_initial_img <- function(img, gaussian_d = 25, threshold_val = .15) {
-  img %>%
+  tmp <- img %>%
     EBImage::filter2(EBImage::makeBrush(gaussian_d, "gaussian")) %>%
     EBImage::normalize() %>%
-    magrittr::subtract(1, .) %>%
+    magrittr::subtract(1, .)
+
+  if (is.null(threshold_val) | threshold_val == 0) {
+    thresholds <- seq(.05, .5, .01)
+    t_mean <- sapply(thresholds, function(x) mean(tmp > x))
+    threshold_val <- thresholds[which.min(abs(t_mean - 0.055))]
+    message("Image cleaned using a threshold of ", threshold_val)
+  }
+  tmp %>%
     (function(.) . > threshold_val)
 }
 
@@ -181,11 +216,28 @@ exaggerate_img_to_mask <- function(img, gaussian_d = 125, threshold_val = .125,
 #'
 #' @param x image/matrix
 #' @export
-binary_center <- function(x) {
+binary_center <- function(x, trim = T) {
   d1sum <- apply(x != 0, 1, sum)
+  if (trim) {
+    d1sum_trim <- rep(0, length(d1sum))
+    d1sum_trim[ceiling(.05*length(d1sum)):floor(.95*length(d1sum))] <- 1
+  } else {
+    d1sum_trim <- 1
+  }
+
+  d1sum <- d1sum*d1sum_trim
   d1sum <- d1sum/sum(d1sum)
   d1sum <- sum((1:(dim(x)[1])) * d1sum)
+
   d2sum <- apply(x != 0, 2, sum)
+  if (trim) {
+    d2sum_trim <- rep(0, length(d2sum))
+    d2sum_trim[ceiling(.05*length(d2sum)):floor(.95*length(d2sum))] <- 1
+  } else {
+    d2sum_trim <- 1
+  }
+
+  d2sum <- d2sum*d2sum_trim
   d2sum <- d2sum/sum(d2sum)
   d2sum <- sum((1:(dim(x)[2])) * d2sum)
 
