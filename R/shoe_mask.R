@@ -130,8 +130,22 @@ rough_align <- function(img, mask, exaggerate_pars = list(),
 
   # plot(rgbImage(img_align, exag_align, mask_align))
 
-  img_center <- binary_center(exag_align)
-  mask_center <- binary_center(mask_align, trim = F)
+  # plot(rgbImage(img, exag_img, mask))
+  shifts <- calc_shifts(exag_align, mask_align)
+
+  padded_img <- img_pad(img_align, padding = shifts$img, value = img_fill_value)
+  padded_exag_img <- img_pad(exag_align, padding = shifts$img, value = 0)
+  padded_mask <- img_pad(mask_align, padding = shifts$mask, value = 0)
+
+  # plot(rgbImage(padded_img, padded_exag_img, padded_mask))
+
+  list(img = padded_img, exag_img = padded_exag_img, mask = padded_mask)
+}
+
+calc_shifts <- function(img, mask, trim_mask = F) {
+
+  img_center <- binary_center(img)
+  mask_center <- binary_center(mask, trim = trim_mask)
 
   mask_pad_left_top <- pmax(img_center, mask_center) - mask_center
   mask_pad_right_bottom <- mask_center - pmin(img_center, mask_center)
@@ -143,34 +157,16 @@ rough_align <- function(img, mask, exaggerate_pars = list(),
                  mask_center + mask_pad_left_top)) {
     warning("Image center alignment appears to have failed")
   }
-
-  padded_img <- img_pad(img_align,
-                        top = img_pad_left_top[2],
-                        left = img_pad_left_top[1],
-                        bottom = img_pad_right_bottom[2],
-                        right = img_pad_right_bottom[1],
-                        value = img_fill_value)
-  padded_exag_img <- img_pad(exag_align,
-                             top = img_pad_left_top[2],
-                             left = img_pad_left_top[1],
-                             bottom = img_pad_right_bottom[2],
-                             right = img_pad_right_bottom[1],
-                             value = 0)
-  padded_mask <- img_pad(mask,
-                         top = mask_pad_left_top[2],
-                         left = mask_pad_left_top[1],
-                         bottom = mask_pad_right_bottom[2],
-                         right = mask_pad_right_bottom[1],
-                         value = 0)
-
-  # plot(rgbImage(padded_img, padded_exag_img, padded_mask))
-
-  thresh_pars$img <- padded_img
-  thresh_img <- do.call("clean_initial_img", thresh_pars)
-
-  tibble(name = c("img", "thresh", "exag_img", "mask"),
-         img = list(padded_img, thresh_img, padded_exag_img, padded_mask))
+  return(list(img = c(top = img_pad_left_top[2],
+                      bottom = img_pad_right_bottom[2],
+                      left = img_pad_left_top[1],
+                      right = img_pad_right_bottom[1]),
+         mask = c(top = mask_pad_left_top[2],
+                  bottom = mask_pad_right_bottom[2],
+                  left = mask_pad_left_top[1],
+                  right = mask_pad_right_bottom[1])))
 }
+
 
 #' Invert, smooth, and threshold an image
 #'
@@ -214,6 +210,7 @@ exaggerate_img_to_mask <- function(img, gaussian_d = 125, threshold_val = .125,
 #' Binary image center
 #'
 #' @param x image/matrix
+#' @param trim Trim 5% from each side of the image? (Useful for removing page boundary issues)
 #' @export
 binary_center <- function(x, trim = T) {
   d1sum <- apply(x != 0, 1, sum)
