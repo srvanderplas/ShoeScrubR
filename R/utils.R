@@ -64,7 +64,8 @@ img_pad_to_center <- function(img, center = round(dim(img)/2), value = 0) {
   pad_left <- pmax(0, padding[2])
   pad_right <- pmax(0, -padding[2])
 
-  img_pad(img, top = pad_top, bottom = pad_bottom, left = pad_left, right = pad_right, value = value)
+  img_pad(img, top = pad_top, bottom = pad_bottom, left = pad_left,
+          right = pad_right, value = value)
 }
 
 #' Pad an image
