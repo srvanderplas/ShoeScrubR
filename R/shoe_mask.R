@@ -42,12 +42,17 @@ shoe_mask <- function(brand, size, foot, ppi = 300) {
 #'
 #' @param img image or data frame of the locations of nonzero pixels in an image
 #'               (columns row, col, value*). If img is a data frame and has
-#'               column value, value will be used to weight the results.
+#'               column value, value will be used to weight the results. If img
+#'               is a list, each image in the list will be handled separately
 #' @param weighted should weighted calculation be used?
 #' @param ... additional arguments to image_to_df
 #' @return angle to rotate the image by (in degrees)
 #' @export
 align_prcomp <- function(img = NULL, weighted = T, ...) {
+  if (is.list(img)) {
+    return(lapply(img, align_prcomp, weighted = weighted, ...))
+  }
+
   if (EBImage::is.Image(img)) {
     img_df <- image_to_df(img, ...)
   } else {
@@ -176,6 +181,10 @@ calc_shifts <- function(img, mask, trim_mask = F) {
 #'        image
 #' @export
 clean_initial_img <- function(img, gaussian_d = 25, threshold_val = .15) {
+  if (is.list(img)) {
+    return(lapply(img, clean_initial_img, gaussian_d = gaussian_d, threshold_val = threshold_val))
+  }
+
   tmp <- img %>%
     EBImage::filter2(EBImage::makeBrush(gaussian_d, "gaussian")) %>%
     EBImage::normalize() %>%
@@ -187,8 +196,15 @@ clean_initial_img <- function(img, gaussian_d = 25, threshold_val = .15) {
     threshold_val <- thresholds[which.min(abs(t_mean - 0.055))]
     message("Image cleaned using a threshold of ", threshold_val)
   }
-  tmp %>%
+  tmp <- tmp %>%
     (function(.) . > threshold_val)
+
+  attr(tmp, "operation") <- append(attr(img, "operation"),
+                                   list(list(type = "clean",
+                                             gaussian_d = gaussian_d,
+                                             threshold_val = threshold_val)))
+
+  tmp
 }
 
 #' Exaggerate an image to a mask-like appearance
@@ -202,18 +218,35 @@ clean_initial_img <- function(img, gaussian_d = 25, threshold_val = .15) {
 #' @export
 exaggerate_img_to_mask <- function(img, gaussian_d = 125, threshold_val = .125,
                                    opening_d = 7, closing_d = 301) {
-  clean_initial_img(img, gaussian_d = gaussian_d, threshold_val = threshold_val) %>%
+  if (is.list(img)) {
+    return(lapply(img, exaggerate_img_to_mask, gaussian_d = gaussian_d,
+                  threshold_val = threshold_val, opening_d = opening_d,
+                  closing_d = closing_d))
+  }
+
+  tmp <- clean_initial_img(img, gaussian_d = gaussian_d, threshold_val = threshold_val) %>%
     EBImage::opening(EBImage::makeBrush(opening_d, "disc")) %>%
     EBImage::closing(EBImage::makeBrush(closing_d, "disc"))
+
+  attr(tmp, "operation") <- append(attr(img, "operation"),
+                                   list(list(type = "exaggerate",
+                                             opening_d = opening_d,
+                                             closing_d = closing_d)))
+
+  tmp
 }
 
 #' Binary image center
 #'
-#' @param x image/matrix
+#' @param img image/matrix
 #' @param trim Trim 5% from each side of the image? (Useful for removing page boundary issues)
 #' @export
-binary_center <- function(x, trim = T) {
-  d1sum <- apply(x != 0, 1, sum)
+binary_center <- function(img, trim = T) {
+  if (is.list(img)) {
+    return(lapply(img, binary_center, trim = trim))
+  }
+
+  d1sum <- apply(img != 0, 1, sum)
   if (trim) {
     d1sum_trim <- rep(0, length(d1sum))
     d1sum_trim[ceiling(.05*length(d1sum)):floor(.95*length(d1sum))] <- 1
@@ -223,9 +256,9 @@ binary_center <- function(x, trim = T) {
 
   d1sum <- d1sum*d1sum_trim
   d1sum <- d1sum/sum(d1sum)
-  d1sum <- sum((1:(dim(x)[1])) * d1sum)
+  d1sum <- sum((1:(dim(img)[1])) * d1sum)
 
-  d2sum <- apply(x != 0, 2, sum)
+  d2sum <- apply(img != 0, 2, sum)
   if (trim) {
     d2sum_trim <- rep(0, length(d2sum))
     d2sum_trim[ceiling(.05*length(d2sum)):floor(.95*length(d2sum))] <- 1
@@ -235,7 +268,7 @@ binary_center <- function(x, trim = T) {
 
   d2sum <- d2sum*d2sum_trim
   d2sum <- d2sum/sum(d2sum)
-  d2sum <- sum((1:(dim(x)[2])) * d2sum)
+  d2sum <- sum((1:(dim(img)[2])) * d2sum)
 
   round(c(d1sum, d2sum))
 }
@@ -248,6 +281,10 @@ binary_center <- function(x, trim = T) {
 #'        reduced to a random sample of size before tabulation
 #' @export
 img_mode <- function(img, digits = 2, size = 50000) {
+  if (is.list(img)) {
+    return(lapply(img, img_mode, digits = digits, size = size))
+  }
+
   v <- img %>%
     EBImage::normalize() %>%
     EBImage::imageData() %>%

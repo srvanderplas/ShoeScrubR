@@ -45,9 +45,8 @@ img_rot_shift <- lapply(angles, function(x) {
 ### End object setup ###
 
 
-
-exag_imgs <- purrr::map(img_rot, ~do.call(exaggerate_img_to_mask, list(img = ., gaussian_d = 15, threshold_val = 0.14, opening_d = 11, closing_d = 101)))
-exag_imgs_shift <- purrr::map(img_rot_shift, ~do.call(exaggerate_img_to_mask, list(img = ., gaussian_d = 15, threshold_val = 0.14, opening_d = 11, closing_d = 101)))
+exag_imgs <- exaggerate_img_to_mask(img_rot, gaussian_d = 15, threshold_val = 0.14, opening_d = 11, closing_d = 101)
+exag_imgs_shift <- exaggerate_img_to_mask(img_rot_shift, gaussian_d = 15, threshold_val = 0.14, opening_d = 11, closing_d = 101)
 
 # par(mfrow = c(6, 6))
 # purrr::walk(exag_imgs, plot)
@@ -61,8 +60,8 @@ test_that("exag images have balance of white/black pixels", {
 })
 
 
-est_angles <- purrr::map_dbl(exag_imgs, align_prcomp)
-est_angles_shift <- purrr::map_dbl(exag_imgs_shift, align_prcomp)
+est_angles <- align_prcomp(exag_imgs) %>% as.numeric()
+est_angles_shift <- align_prcomp(exag_imgs_shift) %>% as.numeric()
 
 test_that("estimated angles are reasonable", {
   errs <- 90 - abs(90 - (angles + est_angles) %% 180) # get abs. distance from 90 deg, then compare to 90 deg. 180 and 0 should both be 90 deg away from 90.
