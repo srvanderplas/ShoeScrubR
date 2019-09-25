@@ -111,13 +111,16 @@ img_pad_to_size <- function(img, size = dim(img), value = 0) {
 #' Pad an image
 #'
 #' @param img image
+#' @param value fill value to use for padding the image.
+#'              If value has the same length as the number of frames in the
+#'              image, it will be applied frame-wise.
+#' @param padding vector of four padding values (top, bottom, left, right).
+#'                Specifying any one of the individual values will override the
+#'                vector specification.
 #' @param top number of pixels to add to the top
 #' @param bottom number of pixels to add to the bottom
 #' @param left number of pixels to add to the left
 #' @param right number of pixels to add to the right
-#' @param value fill value to use for padding the image.
-#'              If value has the same length as the number of frames in the
-#'              image, it will be applied frame-wise.
 #' @export
 #' @importFrom EBImage getFrames colorMode Image
 #' @importFrom abind abind
@@ -128,10 +131,15 @@ img_pad_to_size <- function(img, size = dim(img), value = 0) {
 #' dim(im)
 #' plot(im)
 #'
-#' im_pad <- img_pad(im, top = 15, bottom = 10, left = 5, right = 0, value = c(0, 1, 0))
+#' im_pad <- img_pad(im, value = c(0, 1, 0), top = 15, bottom = 10, left = 5, right = 0)
 #' dim(im_pad)
 #' plot(im_pad)
-img_pad <- function(img, top = 0, bottom = 0, left = 0, right = 0, value = 0) {
+#' im_pad <- img_pad(im, value = c(0, 1, 0), padding = c(15, 10, 5, 0))
+#' dim(im_pad)
+#' plot(im_pad)
+img_pad <- function(img, value = 0, padding = c(0, 0, 0, 0),
+                    top = padding[1], bottom = padding[2],
+                    left = padding[3], right = padding[4]) {
   if (is.list(img)) {
     return(lapply(img, img_pad, top = top, bottom = bottom, left = left,
                   right = right, value = value))
