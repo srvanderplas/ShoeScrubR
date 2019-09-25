@@ -68,6 +68,46 @@ img_pad_to_center <- function(img, center = round(dim(img)/2), value = 0) {
           right = pad_right, value = value)
 }
 
+#' Pad image so that it is of the specified size
+#'
+#' @param img image
+#' @param dim dimensions of the output image (cannot be smaller than the
+#'            current dimensions)
+#' @param value fill value to use for padding the image.
+#'              If value has the same length as the number of frames in the
+#'              image, it will be applied frame-wise.
+#' @export
+#' @examples
+#' par(mfrow = c(1, 2))
+#' im <- EBImage::readImage(system.file('images', 'nuclei.tif', package='EBImage'))[,,1:3]
+#' EBImage::colorMode(im) <- "Color"
+#' dim(im)
+#' plot(im)
+#'
+#' im_pad <- img_pad_to_size(im, size = c(550, 540), value = c(0, 1, 0))
+#' dim(im_pad)
+#' plot(im_pad, all = T)
+img_pad_to_size <- function(img, size = dim(img), value = 0) {
+  if (is.list(img)) {
+    return(lapply(img, img_pad_to_size, size, value = value))
+  }
+  stopifnot(EBImage::is.Image(img))
+
+  if (!all(dim(img)[1:2] <= size)) stop("Cannot pad image to smaller size.")
+
+  pad_total <- size - dim(img)[1:2]
+  pad_l1 <- floor(pad_total/2)
+  pad_l2 <- pad_total - pad_l1 # this handles odd padding lengths
+
+  pad_top <- pmax(0, pad_l1[1])
+  pad_bottom <- pmax(0, pad_l2[1])
+  pad_left <- pmax(0, pad_l1[2])
+  pad_right <- pmax(0, pad_l2[2])
+
+  img_pad(img, top = pad_top, bottom = pad_bottom, left = pad_left,
+          right = pad_right, value = value)
+}
+
 #' Pad an image
 #'
 #' @param img image
