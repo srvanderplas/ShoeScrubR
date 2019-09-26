@@ -64,29 +64,35 @@ scan_info <- tibble(
 scan_align <- scan_info %>%
   mutate(align = purrr::map2(img, mask, rough_align))
 
-max_dims <- map_df(scan_align$align, ~dim(.$img[[1]]) %>% t() %>% as.data.frame() %>% set_names(c("col", "row"))) %>% summarize_each(max) %>% as.numeric()
+max_dims <- map_df(unlist(scan_align$align, recursive = F),
+                   ~dim(.) %>% t() %>% as.data.frame() %>%
+                     set_names(c("col", "row"))) %>%
+  summarize_each(max) %>% as.numeric()
 
 scan_align <- scan_align %>%
   mutate(align_resize = purrr::map(align, function(df) {
-    mutate(df, im_mode = purrr::map_dbl(img, img_mode),
-           img = purrr::map2(img, im_mode, ~img_pad_to_size(.x, value = .y, size = max_dims)))
+    im_mode = purrr::map_dbl(df, img_mode)
+    purrr::map2(df, im_mode, ~img_pad_to_size(.x, value = .y, size = max_dims))
   }))
 
 plot_align <- function(df) {
-  rgbImage(df$img[[1]], 1 - df$img[[2]], (1 - df$img[[4]])) %>% plot()
+  thresh_intersect <- 1 - thresh((1 - df$img)*df$mask, w = 5, h = 5, offset = 0.02)
+  rgbImage(1 - df$mask, df$img, thresh_intersect) %>% plot()
 }
 
 # make into image for show and tell
 cols <- 8
 plot_dims <- c(pmax(ceiling(nrow(scan_align)/cols), 1), pmin(nrow(scan_align), cols))
+
 png(filename = file.path(img_output_dir, "PCA_Rotate_and_Center_Shift_Before.png"), width = 300*plot_dims[2], height = 300*2*plot_dims[1], units = "px")
 par(mfrow = plot_dims)
-purrr::pwalk(list(scan_align$img, scan_align$mask), ~rgbImage(..1, (1 - ..2), 1 - (..1)*(1 - ..2)) %>% plot())
+purrr::pwalk(list(scan_align$img, scan_align$mask), ~plot_align(list(img = ..1, mask = ..2)))
+             #rgbImage((1 - ..2), ..1, 1 - (..1)*(1 - ..2)) %>% plot())
 dev.off()
 
 # make into image for show and tell
-plot_dims <- c(pmax(ceiling(nrow(scan_align)/5), 1), pmin(nrow(scan_align), 5))
 png(filename = file.path(img_output_dir, "PCA_Rotate_and_Center_Shift_After.png"), width = 300*plot_dims[2], height = 300*2*plot_dims[1], units = "px")
 par(mfrow = plot_dims)
-purrr::walk(scan_align$align, plot_align)
+purrr::walk(scan_align$align_resize, plot_align)
+
 dev.off()
