@@ -33,6 +33,22 @@ test_that("img_pad_to_center works", {
                          value = 0.5)))
 })
 
+test_that("img_pad_to_size works", {
+  pad12 <- img_pad_to_size(test_img, c(20, 20), .5)
+  expect_equal(EBImage::imageData(pad12)[1:5,],
+               matrix(.5, 5, 20, dimnames = list(NULL, NULL)))
+  expect_equal(EBImage::imageData(pad12)[16:20,],
+               matrix(.5, 5, 20, dimnames = list(NULL, NULL)))
+  expect_equal(EBImage::imageData(pad12)[6:15, 1:6],
+               matrix(.5, 10, 6, dimnames = list(NULL, NULL)))
+  expect_equal(EBImage::imageData(pad12)[6:15, 15:20],
+               matrix(.5, 10, 6, dimnames = list(NULL, NULL)))
+  expect_error(img_pad_to_size(test_img, c(2.5, 6)))
+  expect_equal(attr(pad12, "operation"),
+               list(list(type = "pad", top_bottom = c(6, 6), left_right = c(5, 5),
+                         value = 0.5)))
+})
+
 test_that("img_resize works", {
   resize_test <- img_resize(test_img, w = ncol(test_img)*2, h = nrow(test_img)*2)
   resize_ebimage <- EBImage::resize(test_img, w = ncol(test_img)*2, h = nrow(test_img)*2)
