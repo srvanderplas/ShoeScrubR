@@ -99,10 +99,10 @@ img_pad_to_size <- function(img, size = dim(img), value = 0) {
   pad_l1 <- floor(pad_total/2)
   pad_l2 <- pad_total - pad_l1 # this handles odd padding lengths
 
-  pad_top <- pmax(0, pad_l1[1])
-  pad_bottom <- pmax(0, pad_l2[1])
-  pad_left <- pmax(0, pad_l1[2])
-  pad_right <- pmax(0, pad_l2[2])
+  pad_top <- pmax(0, pad_l1[2])
+  pad_bottom <- pmax(0, pad_l2[2])
+  pad_left <- pmax(0, pad_l1[1])
+  pad_right <- pmax(0, pad_l2[1])
 
   img_pad(img, top = pad_top, bottom = pad_bottom, left = pad_left,
           right = pad_right, value = value)
