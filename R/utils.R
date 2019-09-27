@@ -191,6 +191,7 @@ img_resize <- function(img, ...) {
 
   res <- EBImage::resize(img, ...)
   args <- list(...)
+  attr(res, "names") <- NULL
   attr(res, "operation") <- append(attr(img, "operation"),
                                    list(list(type = "resize",
                                         orig_dim = dim(img),
@@ -301,34 +302,6 @@ img_crop <- function(img, dim, center = NULL) {
 
 crop_frame <- function(x, left_top, right_bottom) {
   x[left_top[1]:right_bottom[1],left_top[2]:right_bottom[2]]
-}
-
-
-
-#' Image pyramid
-#'
-#' @param img image (or list of images). If image list is named, resulting
-#'            tibble will have an extra column, img_name.
-#' @param scale vector of numeric scaling factors
-#' @return tibble containing columns img, scale, dim, and (if original image
-#'         list is named) img_name. The img column will contain the scaled image
-#' @export
-img_pyramid <- function(img, scale, ...) {
-
-  imgdf <- tibble::tibble(img = img)
-  if (!is.null(names(img))) {
-    imgdf$img_name <- names(img) %>% make.unique()
-  }
-
-  imgdf <- tidyr::crossing(imgdf, scale = scale) %>%
-    dplyr::mutate(
-      dim = purrr::map2(img, scale, ~floor(dim(.x)/.y)),
-      img = purrr::map2(img, dim, ~img_resize(.x, w = .y[1], h = .y[2]))
-    )
-
-  stopifnot(c("img", "scale", "dim") %in% names(imgdf))
-
-  return(imgdf)
 }
 
 #' Automatically resize image to a specific size - crop or pad as necessary
@@ -457,4 +430,37 @@ auto_resize_frame <- function(x, final_dims, value = NULL) {
   }
 
   new_img
+}
+
+
+
+
+#' Image pyramid
+#'
+#' @param img image (or list of images). If image list is named, resulting
+#'            tibble will have an extra column, img_name.
+#' @param scale vector of numeric scaling factors
+#' @return tibble containing columns img, scale, dim, and (if original image
+#'         list is named) img_name. The img column will contain the scaled image
+#' @export
+img_pyramid <- function(img, scale, resize_args = list()) {
+
+  if (EBImage::is.Image(img)) {
+    img <- list(img)
+  }
+
+  if (!is.null(names(img))) {
+    imgdf$img_name <- names(img) %>% make.unique()
+  }
+
+
+  imgdf <- tidyr::crossing(img = img, scale = scale) %>%
+    dplyr::mutate(
+      dim = purrr::map2(img, scale, ~floor(dim(.x)/.y)),
+      img = purrr::map2(img, dim, ~img_resize(img = .x, w = .y[1], h = .y[2]))
+    )
+
+  stopifnot(c("img", "scale", "dim") %in% names(imgdf))
+
+  return(imgdf)
 }
