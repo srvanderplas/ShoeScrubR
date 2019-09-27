@@ -69,7 +69,7 @@ tmp %>% group_by(filter_d) %>% summarize(x = mean(p*(1-p) < .025))
 
 # For a bunch of images...
 full_imglist <- list.files("/lss/research/csafe-shoeprints/ShoeImagingPermanent/",
-                           pattern = "00\\d{4}[RL]_\\d{8}_5_1_1", full.names = T)
+                           pattern = "0[01]\\d{4}[RL]_\\d{8}_5_1_1", full.names = T)
 dir <- tempdir()
 
 file.copy(full_imglist, file.path(dir, basename(full_imglist)))
@@ -90,7 +90,7 @@ scan_info <- tibble(
 ) %>%
   left_join(select(shoe_info, ShoeID, Brand, Size, Shoe_foot)) %>%
   group_by(Shoe_foot, Brand) %>%
-  sample_n(2) %>%
+  sample_n(5) %>%
   ungroup() %>%
   group_by(ShoeID, Shoe_foot) %>%
   arrange(desc(date)) %>%
@@ -112,5 +112,13 @@ tmp <- blockwise %>% unnest(bs) %>%
 
 tmp %>%
   ggplot(aes(x = p*(1-p), fill = factor(filter_d), group = interaction(filter_d, file))) +
+  geom_density(alpha = .5) +
+  facet_wrap(Brand~ShoeID)
+
+
+tmp %>% group_by(filter_d) %>% summarize(x = mean(p*(1-p) < .025))
+
+tmp %>%
+  ggplot(aes(x =sd, fill = factor(filter_d), group = interaction(filter_d, file))) +
   geom_density(alpha = .5) +
   facet_wrap(Brand~ShoeID)
