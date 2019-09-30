@@ -116,5 +116,41 @@ bin_img[is.nan(bin_img)] <- 1
 
 bin_img[1000,] %>% as.numeric() %>% rle() %>% do.call("bind_cols", .) %>% filter(values == 1) %>% `[[`(1) %>% median()
 
-apply(bin_img, 1, function(x) rle(x) %>% do.call("bind_cols", .))
+col_runs <- apply(bin_img, 1, function(x) rle(x) %>% do.call("bind_cols", .)) %>%
+  purrr::map2_df(., 1:length(.), ~dplyr::mutate(.x, idx = .y, type = "col", prop_lengths = lengths/dim(bin_img)[2]))
+
+row_runs <- apply(bin_img, 2, function(x) rle(x) %>% do.call("bind_cols", .)) %>%
+  purrr::map2_df(., 1:length(.), ~dplyr::mutate(.x, idx = .y, type = "row", prop_lengths = lengths/dim(bin_img)[1]))
+
+runs <- bind_rows(col_runs, row_runs) %>%
+  group_by(type) %>%
+  mutate(pos = idx/max(idx)) %>%
+  ungroup()
+```
+
+In this plot, there is a cluster of 0-runs of length 100(ish) and 250(ish), while the 1-runs are at most 60 pixels long, and usually closer to 10-20. The better question is how do we "see" that automatically?
+```{r}
+ggplot(data = runs, aes(y = lengths, x = pos, fill = factor(values))) + geom_jitter(alpha = .05) + facet_wrap(~type + values, scales = 'free')
+```
+
+```{r}
+# get middle 2/3 of values
+trim_1_3 <- function(x, y) {
+  cuts <- quantile(x, c(.16, .84))
+  y[x > cuts[1] & x < cuts[2]]
+}
+
+col_runs_trim_0 <- filter(tmp, values == 0) %>%
+  filter(col > quantile(col, .16) & col < quantile(col, .84))
+```
+
+```{r}
+bin_img_clean <- bin_img %>%
+  erode(makeBrush(size = 1)) %>%
+  dilate(makeBrush(size = 3, shape = "line", angle = 0)) %>%
+  dilate(makeBrush(size = 3, shape = "line", angle = 45)) %>%
+  dilate(matrix(c(0, 0, 1, 0, 1, 0, 1, 0, 0))) %>%
+  erode(makeBrush(size = 3)) %>%
+  dilate(makeBrush(size = 9, shape = "disc"))
+plot(bin_img_clean)
 ```
