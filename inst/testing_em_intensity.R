@@ -8,7 +8,8 @@ lss_dir <- "/lss/research/csafe-shoeprints/ShoeImagingPermanent"
 # For a bunch of images...
 full_imglist <- list.files("/lss/research/csafe-shoeprints/ShoeImagingPermanent/",
                            pattern = "0[01]\\d{4}[RL]_\\d{8}_5_1_1", full.names = T)
-dir <- tempdir()
+dir <- "/tmp/film-prints"
+if (!dir.exists(dir)) dir.create(dir)
 
 file.copy(full_imglist, file.path(dir, basename(full_imglist)))
 imglist <- file.path(dir, basename(full_imglist))
