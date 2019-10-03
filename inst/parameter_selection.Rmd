@@ -3,13 +3,17 @@ title: "Automatic Parameter Selection"
 author: "Susan Vanderplas"
 date: "9/27/2019"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = F, dpi = 300)
+knitr::opts_chunk$set(echo = F, cache = T, cache.lazy = F, dpi = 300)
 library(EBImage)
 library(ShoeScrubR)
 library(tidyverse)
+
+set.seed(3142095)
 ```
 
 ```{r data-setup}
@@ -17,15 +21,15 @@ lss_dir <- "/lss/research/csafe-shoeprints/ShoeImagingPermanent"
 
 # For a bunch of images...
 full_imglist <- list.files("/lss/research/csafe-shoeprints/ShoeImagingPermanent/",
-                           pattern = "0[01]\\d{4}[RL]_\\d{8}_5_1_1", full.names = T)
+                           pattern = "0[01]\\d{4}[RL]_\\d{8}_5_1_1_.*_.*_.*", full.names = T)
 dir <- "/tmp/film-prints"
 if (!dir.exists(dir)) dir.create(dir)
 
 file.copy(full_imglist, file.path(dir, basename(full_imglist)))
 imglist <- file.path(dir, basename(full_imglist))
 
-shoe_info <- read.csv("~/Projects/CSAFE/2018_Longitudinal_Shoe_Project/Clean_Data/shoe-info.csv") %>%
-  filter(ShoeID %in% as.numeric(str_sub(basename(imglist), 1, 3))) %>%
+shoe_info <- read_csv("~/Projects/CSAFE/2018_Longitudinal_Shoe_Project/Clean_Data/shoe-info.csv") %>%
+  filter(ShoeID %in% str_sub(basename(imglist), 1, 3)) %>%
   select(ShoeID, Brand, Size) %>%
   mutate(Size = str_remove(Size, "[ MW]") %>% parse_number()) %>%
   crossing(tibble(Mask_foot = c("R", "L"), Shoe_foot = c("L", "R"))) %>%
@@ -33,17 +37,17 @@ shoe_info <- read.csv("~/Projects/CSAFE/2018_Longitudinal_Shoe_Project/Clean_Dat
 
 scan_info <- tibble(
   file = imglist,
-  ShoeID = str_extract(basename(file), "^\\d{3}") %>% parse_integer(),
+  ShoeID = str_extract(basename(file), "^\\d{3}"),
   Shoe_foot = str_extract(basename(file), "\\d{6}[RL]") %>% str_remove_all("\\d"),
   date = str_extract(basename(file), "\\d{8}") %>% parse_date(format = "%Y%m%d")
 ) %>%
   left_join(select(shoe_info, ShoeID, Brand, Size, Shoe_foot)) %>%
   group_by(Shoe_foot, Brand) %>%
-  sample_n(1) %>%
+  sample_n(2) %>%
   ungroup() %>%
   group_by(ShoeID, Shoe_foot) %>%
-  arrange(desc(date)) %>%
-  filter(row_number() == 1) %>%
+  # arrange(desc(date)) %>%
+  # filter(row_number() == 1) %>%
   ungroup() %>%
   mutate(
     img = purrr::map(file, EBImage::readImage, all = F),
@@ -96,18 +100,37 @@ em_thresh <- function(img, scale = 10, ngroups = 3) {
   return(list(img_densities = img_dens_functions, img_ratios = img_dens_ratio, em = em))
 }
 
-emt <- em_thresh(scan_info$img[[1]])
+emt_adidas <- em_thresh(scan_info$img[[1]])
+emt <- em_thresh(scan_info$img[[2]])
+Image(abind::abind(emt_adidas$img_ratios, along = 3)) %>% plot(all = T, nx = 3)
 Image(abind::abind(emt$img_ratios, along = 3)) %>% plot(all = T, nx = 3)
 ```
 
-The first image shows pixels(in white) identified as most likely providing signal data. The third image shows pixels identified as most likely belonging to the background. The second image shows intermediate pixels, which are not necessarily consistent with background or signal. 
+The first image shows pixels(in white) identified as most likely providing signal data. The third image shows pixels identified as most likely belonging to the background. The second image shows intermediate pixels, which are not necessarily consistent with background or signal.
 
 One primary advantage of using only the first image is that it is nearly discrete - the values are the likelihood ratio of belonging to signal vs. other (background + intermediate), and are almost completely separated between infinite and 0. 
+```{r}
+df <- tribble(~type, ~values,
+              "adidas", as.numeric(emt_adidas$img_ratios[[1]]),
+              "nike", as.numeric(emt$img_ratios[[1]])) %>%
+  unnest(values)
+
+df.inf <- df %>%
+  group_by(type) %>%
+  summarize(inf = sum(is.infinite(values)))
+
+ggplot() + 
+  geom_histogram(aes(x = values), data = df, binwidth = .1) + 
+  scale_x_log10() + 
+  geom_text(aes(x = 1, y = Inf, label = sprintf("%d infinite values", inf)), data = df.inf, hjust = 0, vjust = 1.2) + 
+  facet_wrap(~type)
+```
 
 This allows us to get away from selecting a single threshold value in favor of computing an implicit automatic threshold via the EM algorithm. 
 
 ## Diameter selection
 
+### By run length
 Idea - use `rle` to count runs in rows and columns to get an *approximate* idea of which parameters to use for tuning. E.g. using binarized image, runs of 0 will be either relatively short (adidas stripes, between Nike blobs) or relatively long (outside of the shoe). 
 
 ```{r}
@@ -133,17 +156,7 @@ In this plot, there is a cluster of 0-runs of length 100(ish) and 250(ish), whil
 ggplot(data = runs, aes(y = lengths, x = pos, fill = factor(values))) + geom_jitter(alpha = .05) + facet_wrap(~type + values, scales = 'free')
 ```
 
-```{r}
-# get middle 2/3 of values
-trim_1_3 <- function(x, y) {
-  cuts <- quantile(x, c(.16, .84))
-  y[x > cuts[1] & x < cuts[2]]
-}
-
-col_runs_trim_0 <- filter(tmp, values == 0) %>%
-  filter(col > quantile(col, .16) & col < quantile(col, .84))
-```
-
+### By blob size
 
 ```{r}
 # Clean up just enough to label well
@@ -182,19 +195,14 @@ colorLabels(bin_big_clean_labels) %>% plot()
 ```
 
 ```{r}
-
 bind_rows(mutate(label_counts, type = "binary image"),
           mutate(clean_label_counts, type = "cleaned binary image")) %>%
   filter(label != 0) %>%
   ggplot(aes(x = freq, colour = type)) + 
   stat_density(geom = "line") + 
   # coord_cartesian(xlim = c(1, 16000), ylim = c(0, .015)) + 
-  scale_x_log10()
-```
-
-
-```{r}
-quantile(clean_label_counts$freq, c(.05, .5, .95))
+  scale_x_log10() + 
+  xlab("Blob size in pixels")
 ```
 
 ```{r}
@@ -204,15 +212,14 @@ purrr::walk(c(100, 1000, 2500, 5000, 10000, 15000), function(z) {
   small_interesting_blobs_clean <- bin_img_clean_label * (bin_img_clean_label %in% as.numeric(as.character(interesting_blobs$label)))
   
   colorLabels(small_interesting_blobs_clean) %>% plot()
-  text(x = dim(bin_img)[1]/2, y = dim(bin_img)[2] - 400, label = sprintf("Blobs bigger \n than %d", z), col = "white", adj = c(.5, .5))
+  text(x = dim(bin_img)[1]/2, y = dim(bin_img)[2] - 300, label = sprintf("Blobs bigger \n than %d", z), col = "white", adj = c(.5, .5))
 })
 ```
-
+Unfortunately, filtering by blobs may not be particularly useful when dealing with Adidas shoes. 
 
 ### For a bunch of images...
-
 ```{r}
-scan_info <- mutate(scan_info, em = purrr::map(img, em_thresh))
+scan_info <- mutate(scan_info, em = purrr::map(img, em_thresh, ngroups = 3))
 
 scan_info <- mutate(scan_info,
                     bin_img = purrr::map(em, ~{
@@ -222,12 +229,45 @@ scan_info <- mutate(scan_info,
                     }))
 
 par(mfrow = c(2, 8))
+purrr::walk(scan_info$img, plot)
 purrr::walk(scan_info$bin_img, plot)
 ```
 
 Filtering each image to include only points with a ratio of P(signal)/P(not signal) greater than 10 removes most of the noise in the images without scale-dependent parameters, but the resulting image is a bit fragmented spatially, because the EM algorithm is performed on point intensity only; it does not include any spatial context because including 2 additional dimensions vastly increases memory requirements and computational time. 
 
 Some additional cleaning may be useful, but ideally, would use parameters which are small enough relative to the image to not depend on image scaling within reason (e.g. an image which has dimensions 1.5x the length/width of a similar image). 
+
+<!-- The standard threshold method requires setting a filter width and height and a threshold - if the difference is above that threshold, the pixel will be white, otherwise, black. This method is nice if you know that threshold, but is less optimal if you don't. By combining the binary image from above with a thresholding method, we can produce a map of potential threshold values. Using that map, we can set a new threshold that will give us a highly adaptive method that can utilize default parameters.  -->
+
+<!-- To recap: -->
+
+<!-- 1. Binarize the image as above, using EM algorithm mixture model -->
+
+<!-- 2. Create an average image using a relatively small patch size (15x15) that should be "small" regardless of the resolution of the image -->
+
+<!-- 3. Create a residual image by subtracting the average image from the original image -->
+
+<!-- 4. Threshold the residual image using default parameters (5x5 region, offset of 0.01) -->
+
+<!-- This produces an edge-detected image.  -->
+
+<!-- ```{r} -->
+<!-- scan_info <- mutate(scan_info, avg_img = purrr::map(img, filter2, filter = matrix(1/15^2, nrow = 15, ncol = 15))) -->
+
+<!-- scan_info <- mutate(scan_info, imdiff = purrr::map2(img, avg_img, ~ .x - .y)) -->
+
+<!-- scan_info <- mutate(scan_info, thresh_map = purrr::map2(bin_img, imdiff, ~{ -->
+<!--   z <- thresh(.x*.y) -->
+
+
+<!-- })) -->
+
+<!-- par(mfrow = c(3, 8)) -->
+<!-- purrr::walk(scan_info$avg_img, plot) -->
+<!-- purrr::walk(scan_info$imdiff, ~plot(normalize(.))) -->
+<!-- purrr::walk(scan_info$thresh_map, ~plot(normalize(.))) -->
+<!-- ``` -->
+
 
 From that point, we can label the image, so that each self contained region has a different numeric label. We can use these regions to facilitate certain additional assumptions: 
 
@@ -256,19 +296,24 @@ clean_img_corners <- function(labeled_img, len = 50) {
     set_names(c("label", "freq", "corner")) %>%
     mutate(label = as.numeric(as.character(label)))
   
-  labeled_img[labeled_img %in% tmp$label] <- 0
+  pct_label <- tibble(label = unique(tmp$label), pct = lapply(unique(tmp$label), function(x) mean(labeled_img == x)))
+  
+  pct_label <- filter(pct_label, pct <= .1)
+  
+  labeled_img[labeled_img %in% pct_label$label] <- 0
   labeled_img
 }
 
 
 scan_info <- scan_info %>%
   mutate(clean_img = purrr::map(bin_img, easy_clean),
+         clean_img_hull = purrr::map(clean_img, fillHull),
          labeled_img = purrr::map(clean_img, bwlabel),
          labeled_img = purrr::map(labeled_img, clean_img_corners),
          labeled_fill = purrr::map(labeled_img, fillHull),
          label_counts = purrr::map(labeled_fill, ~table(.) %>% as.data.frame(stringsAsFactors = F) %>% set_names(c("label", "freq"))))
 
-par(mfrow = c(2, 8)) 
+par(mfrow = c(1, 8)) 
 purrr::walk(scan_info$labeled_fill, ~colorLabels(.) %>% plot())
 
 ```
@@ -276,77 +321,120 @@ purrr::walk(scan_info$labeled_fill, ~colorLabels(.) %>% plot())
 The default parameters (erode 1px, dilate 3px in a line, erode 5px in a disc, dilate 9px in a disc) seem to work fairly well on both shoe models. 
 
 
-```{r}
-scan_info %>%
-  select(ShoeID, Shoe_foot, Brand, date, Size, label_counts) %>%
-  unnest(label_counts) %>%
-  filter(label != 0) %>%
-  ggplot(aes(x = freq, color = Brand, group = interaction(ShoeID, Shoe_foot, date))) + 
-  stat_density(geom = "line") + 
-  scale_x_log10() + 
-  facet_wrap(~Brand) +
-  scale_color_discrete(guide = F) + 
-  ggtitle("Distribution of label area")
+<!-- ```{r} -->
+<!-- scan_info %>% -->
+<!--   select(ShoeID, Shoe_foot, Brand, date, Size, label_counts) %>% -->
+<!--   unnest(label_counts) %>% -->
+<!--   filter(label != 0) %>% -->
+<!--   ggplot(aes(x = freq, color = Brand, group = interaction(ShoeID, Shoe_foot, date))) + -->
+<!--   stat_density(geom = "line") + -->
+<!--   scale_x_log10() + -->
+<!--   facet_wrap(~Brand) + -->
+<!--   scale_color_discrete(guide = F) + -->
+<!--   ggtitle("Distribution of label area") -->
 
+<!-- ``` -->
+
+<!-- Using the remaining labels, we can compute statistics on each region, including the moments (center of mass, major axis, eccentricity, obj angle) and the shape (area, perimeter, mean radius, mean radius standard dev, max radius, min radius). -->
+
+<!-- ```{r} -->
+<!-- scan_info <- scan_info %>% -->
+<!--   mutate(label_moments = purrr::map(labeled_fill, computeFeatures.moment), -->
+<!--          label_shape = purrr::map(labeled_fill, computeFeatures.shape)) -->
+
+<!-- scan_label_stats <- scan_info %>% -->
+<!--   select(file, Brand, Size, ShoeID, date, label_moments, label_shape, labeled_fill) %>% -->
+<!--   mutate(labels = purrr::map(label_moments, rownames)) %>% -->
+<!--   mutate(label_moments = purrr::map(label_moments, as_tibble)) %>% -->
+<!--   mutate(label_shape = purrr::map(label_shape, as_tibble)) %>% -->
+<!--   mutate(label_stats = purrr::map2(label_moments, label_shape, bind_cols)) %>% -->
+<!--   # mutate(label_stats = purrr::map2(labels, label_stats, ~mutate(.y, label = .x))) %>% -->
+<!--   select(-label_moments, -label_shape) %>% -->
+<!--   mutate(label_stats_mat = purrr::map(label_stats, as.matrix)) -->
+
+
+
+<!-- ``` -->
+
+<!-- We could probably distinguish between these by clustering... or manually mark useful/not and fit a RF to the labeled training data... -->
+<!-- ```{r} -->
+<!-- scan_label_stats <- scan_label_stats %>% -->
+<!--   mutate(hc = purrr::map(label_stats_mat, ~hclust(dist(as.matrix(.))))) -->
+<!-- ``` -->
+
+<!-- The statistics could also form a useful way to characterize the shoe - dimensionality reduction -->
+<!-- ```{r, fig.width = 4, fig.height = 9, out.width = "33%"} -->
+<!-- scan_label_stats %>% mutate(row = row_number()) %>% unnest(label_stats) %>% ggplot(aes(x = m.cx, y = m.cy, size = s.area)) + geom_point() + scale_y_reverse() + coord_fixed() + theme(legend.position = "bottom") + facet_wrap(~row, nrow = 1) -->
+<!-- scan_label_stats %>% mutate(row = row_number()) %>% unnest(label_stats) %>% ggplot(aes(x = m.cx, y = m.cy, size = s.radius.sd)) + geom_point() + scale_y_reverse() + coord_fixed() + theme(legend.position = "bottom") + facet_wrap(~row, nrow = 1) -->
+<!-- scan_label_stats %>% mutate(row = row_number()) %>% unnest(label_stats) %>% ggplot(aes(x = m.cx, y = m.cy, size = s.radius.min)) + geom_point() + scale_y_reverse() + coord_fixed() + theme(legend.position = "bottom") + facet_wrap(~row, nrow = 1) -->
+<!-- scan_label_stats %>% mutate(row = row_number()) %>% unnest(label_stats) %>% ggplot(aes(x = m.cx, y = m.cy, size = s.perimeter)) + geom_point() + scale_y_reverse() + coord_fixed() + theme(legend.position = "bottom") + facet_wrap(~row, nrow = 1) -->
+<!-- scan_label_stats %>% mutate(row = row_number()) %>% unnest(label_stats) %>% ggplot(aes(x = m.cx, y = m.cy, size = m.eccentricity)) + geom_point() + scale_y_reverse() + coord_fixed() + theme(legend.position = "bottom") + facet_wrap(~row, nrow = 1) -->
+<!-- scan_label_stats %>% mutate(row = row_number()) %>% unnest(label_stats) %>% ggplot(aes(x = m.cx, y = m.cy, size = m.majoraxis)) + geom_point() + scale_y_reverse() + coord_fixed() + theme(legend.position = "bottom") + facet_wrap(~row, nrow = 1) -->
+<!-- ``` -->
+
+<!-- But for the moment, the simplest way to remove the outside blobs might be to calculate a relative measure of rotational intertia - how far from the blob center to the image center, divided by the size of the blob. Big blobs, even those on the edges, should stay, but smaller blobs should be pruned. -->
+
+<!-- ```{r} -->
+<!-- rotational_inertia <- function(img, img_stats) { -->
+<!--   im_dims <- dim(img) -->
+
+<!--   ((.5 - img_stats$m.cx/im_dims[1])^2 + (.5 - img_stats$m.cy/im_dims[2])^2)/img_stats$s.area -->
+<!-- } -->
+
+<!-- scan_label_stats <- scan_label_stats %>% -->
+<!--   mutate(inertia = map2(labeled_fill, label_stats, rotational_inertia)) -->
+
+<!-- scan_label_stats %>% mutate(row = row_number()) %>% unnest(c(labels, label_stats, inertia)) %>% -->
+<!-- ggplot(aes(x = inertia, group = paste0(Brand, "-", ShoeID))) + geom_histogram() + facet_wrap(~row, nrow = 1) -->
+
+<!-- ``` -->
+
+<!-- ```{r, fig.width = 16, fig.height = 9, out.width = "33%"} -->
+<!-- scan_label_stats %>% mutate(row = row_number()) %>% unnest(c(labels, label_stats, inertia)) %>% ggplot() + geom_point(aes(x = m.cx, y = m.cy, size = inertia)) + scale_y_reverse() + theme(legend.position ="bottom") + coord_fixed() + facet_wrap(~row, nrow = 1) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- tmp <- scan_label_stats %>% -->
+<!--   left_join(select(scan_info, Brand, Size, ShoeID, date, im_dim)) %>% -->
+<!--   unnest(c(labels, label_stats, inertia)) %>% -->
+<!--   mutate(max_col = purrr::map_int(im_dim, 1), max_row = purrr::map_int(im_dim, 2)) -->
+
+<!-- tmp[,c("m.cx", "m.cy", "inertia")] %>% as.matrix() -->
+<!-- ``` -->
+
+
+At this point, we can use the labeled image as a mask: if the label is nonzero, we take the value of the pixel in the original image.
+
+```{r}
+scan_info <- mutate(scan_info, censored_img = map2(img, labeled_fill, ~{.x * (.y > 0) + (.y == 0)}))
+
+purrr::walk(scan_info$censored_img, ~plot(normalize(.)))
 ```
 
-Using the remaining labels, we can compute statistics on each region, including the moments (center of mass, major axis, eccentricity, obj angle) and the shape (area, perimeter, mean radius, mean radius standard dev, max radius, min radius).
+In order to create an exaggerated mask of the shoe print to align with the default mask, we start by blurring the image using a gaussian filter. Rather than using predetermined parameters, we instead select the sigma of the gaussian distribution to be 1/50th of the size of the dimensions of a square image with the same area as our image. Thresholding the blurred image at the median provides a first pass exaggerated shoe mask.
 
 ```{r}
-scan_info <- scan_info %>%
-  mutate(label_moments = purrr::map(labeled_fill, computeFeatures.moment),
-         label_shape = purrr::map(labeled_fill, computeFeatures.shape))
-
-scan_label_stats <- scan_info %>%
-  select(Brand, Size, ShoeID, date, label_moments, label_shape, labeled_fill) %>%
-  mutate(labels = purrr::map(label_moments, rownames)) %>%
-  mutate(label_moments = purrr::map(label_moments, as_tibble)) %>%
-  mutate(label_shape = purrr::map(label_shape, as_tibble)) %>%
-  mutate(label_stats = purrr::map2(label_moments, label_shape, bind_cols)) %>%
-  # mutate(label_stats = purrr::map2(labels, label_stats, ~mutate(.y, label = .x))) %>%
-  select(-label_moments, -label_shape) %>%
-  mutate(label_stats_mat = purrr::map(label_stats, as.matrix))
-
-
-
+scan_info <- mutate(scan_info, blurred_img = purrr::map2(censored_img, im_dim, ~gblur(.x, sigma = sqrt(prod(.y))/50, boundary = "replicate")))
+par(mfrow = c(3, 8))
+purrr::walk(scan_info$blurred_img, plot)
+purrr::walk(scan_info$blurred_img, ~plot(. < median(.)))
+purrr::walk(scan_info$blurred_img, ~plot(colorLabels(bwlabel(. < median(.)))))
 ```
 
-We could probably distinguish between these by clustering... or manually mark useful/not and fit a RF to the labeled training data...
-```{r}
-scan_label_stats <- scan_label_stats %>%
-  mutate(hc = purrr::map(label_stats_mat, ~hclust(dist(as.matrix(.)))))
-```
-
-The statistics could also form a useful way to characterize the shoe - dimensionality reduction
-```{r}
-scan_label_stats$label_stats[[1]] %>% ggplot(aes(x = m.cx, y = m.cy, size = s.area)) + geom_point()
-scan_label_stats$label_stats[[1]] %>% ggplot(aes(x = m.cx, y = m.cy, size = s.radius.sd)) + geom_point()
-scan_label_stats$label_stats[[1]] %>% ggplot(aes(x = m.cx, y = m.cy, size = s.radius.min)) + geom_point()
-scan_label_stats$label_stats[[1]] %>% ggplot(aes(x = m.cx, y = m.cy, size = s.perimeter)) + geom_point()
-scan_label_stats$label_stats[[1]] %>% ggplot(aes(x = m.cx, y = m.cy, size = m.eccentricity)) + geom_point()
-scan_label_stats$label_stats[[1]] %>% ggplot(aes(x = m.cx, y = m.cy, size = m.majoraxis)) + geom_point()
-```
-
-But for the moment, the simplest way to remove the outside blobs might be to calculate a relative measure of rotational intertia - how far from the blob center to the image center, divided by the size of the blob. Big blobs, even those on the edges, should stay, but smaller blobs should be pruned.
+Labeling the resulting image's distinct regions, we can select the region that is not the background with the largest area, and then fill any holes in that region. Finally, another image-area based operation can be conducted: shrinking the image by 1/5 of the sqrt(area) of our image, then enlarging the image by the same amount. This smoothes out the image boundary and also minimizes the effects of interactions with the page border. 
 
 ```{r}
-rotational_inertia <- function(img, img_stats) {
-  im_dims <- dim(img)
-  
-  ((.5 - img_stats$m.cx/im_dims[1])^2 + (.5 - img_stats$m.cy/im_dims[2])^2)/img_stats$s.area
-}
 
-scan_label_stats <- scan_label_stats %>%
-  mutate(inertia = map2(labeled_fill, label_stats, rotational_inertia))
-
-scan_label_stats %>% unnest(c(labels, label_stats, inertia)) %>%
-ggplot(aes(x = inertia, group = ShoeID)) + geom_histogram() + facet_wrap(~ShoeID)
+scan_info <- mutate(scan_info, exag_mask = purrr::map(blurred_img, ~{
+  z <- (. < median(.))
+  z <- bwlabel(z)
+  labels <- table(z[z!=0]) %>% sort(decreasing = T)
+  fillHull(z == as.numeric(names(labels[1]))) %>%
+    opening(makeBrush(size = floor(sqrt(length(.))/5), "disc"))
+}))
+par(mfrow = c(1, 8))
+purrr::walk(scan_info$exag_mask, plot)
 ```
-
-Need to figure out how to replace labels with rotational inertia values...
-
-
-
 
 
 ## Image Aggregation
