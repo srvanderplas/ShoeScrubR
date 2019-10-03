@@ -105,24 +105,20 @@ pca_to_angle <- function(rot) {
 #'
 #' @param img Image - greyscale, white(ish) as background, black as signal
 #' @param mask Mask; white (signal) and black (bkgd)
-#' @param exaggerate_pars list of parameters to use to exaggerate the original
-#'        image to a mask-like appearance
 #' @param img_fill_value value to fill any image padding with; defaults to the
 #'        mode value (as calculated by \code{\link{img_mode}}).
 #' @return list containing image and mask which have been aligned to center
 #'         value and rotated via principal components so that PC1 is the
 #'         positive y-axis.
 #' @export
-rough_align <- function(img, mask, exaggerate_pars = list(),
-                        img_fill_value = img_mode(img)) {
+rough_align <- function(img, mask, img_fill_value = img_mode(img)) {
 
   if (!all(dim(img) == dim(mask))) {
     message("Auto-resizing mask to the size of image, preserving mask scaling")
     mask <- auto_resize_img(mask, final_dims = dim(img))
   }
 
-  exaggerate_pars$img <- img
-  exag_img <- do.call("exaggerate_img_to_mask", exaggerate_pars)
+  exag_img <- exaggerate_img_auto(img)
 
   # plot(rgbImage(img, exag_img, mask))
 
