@@ -390,6 +390,7 @@ em_thresh <- function(img,
 }
 #' Binary image center
 #'
+#' Calculate the center of mass of a binary image, with or without trimming
 #' @param img image/matrix
 #' @param trim Trim 5% from each side of the image? (Useful for removing page boundary issues)
 #' @export
@@ -449,4 +450,16 @@ img_mode <- function(img, digits = 2, size = 50000) {
     sort(decreasing = T) %>%
     names() %>% `[`(1) %>%
     as.numeric()
+}
+
+
+#' Estimate PPI for film images
+#'
+#' The film used in the longitudinal study has dimensions 7"x13".
+#' This function is a convenience function which takes the dimensions of the
+#' image and estimates the PPI so that the mask can be scaled appropriately.
+#' @param dim Image dimensions
+#' @export
+est_ppi_film <- function(dim) {
+  round(mean(dim/c(7, 13))/100)*100
 }
