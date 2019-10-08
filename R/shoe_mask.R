@@ -150,15 +150,22 @@ get_mask_min <- function(mm) {
   mask_width <- mm %>% colSums() %>% smooth.spline(df = 10)
 
   d1 <- mask_width %>% predict(deriv = 1) %>% as_tibble() %>%
-    rename(idx = x, d1 = y)
+    rename(idx = x, d1 = y) %>%
+    mutate(fd_sign = sign(d1) - sign(lag(d1, 1)))
   d2 <- mask_width %>% predict(deriv = 2) %>% as_tibble() %>%
     rename(idx = x, d2 = y)
   ds <- left_join(d1, d2, by = "idx") %>%
-    filter(d1^2 < .01 & d2 > 0) %>%
-    filter(row_number() == which.min(d1^2))
+    filter(d1^2 < .01 & d2 > 0 & fd_sign == 2) %>%
+    filter(row_number() == which.min((idx - dim(mm)[2]/2)^2))
 
   row <- ds$idx
   col <- round(mean(which(mm[,row] > 0)))
+
+  if (is.nan(row) | is.nan(col)) {
+    center <- binary_center(mm, trim = T)
+    row <- ifelse(is.nan(row), center[2], row)
+    col <- ifelse(is.nan(col), center[1], col)
+  }
 
   c(col, row)
 }
