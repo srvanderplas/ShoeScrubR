@@ -9,7 +9,7 @@ lss_dir <- "/lss/research/csafe-shoeprints/ShoeImagingPermanent"
 
 # For a bunch of images...
 full_imglist <- list.files("/lss/research/csafe-shoeprints/ShoeImagingPermanent/",
-                           pattern = "001\\d{3}[L]_\\d{8}_5_._._.*_.*_.*", full.names = T)
+                           pattern = "00[1-6]\\d{3}[L]_\\d{8}_5_._1_.*_.*_.*", full.names = T)
 dir <- "/tmp/film-prints"
 if (!dir.exists(dir)) dir.create(dir)
 
@@ -38,13 +38,16 @@ scan_info <- tibble(
     im_dim = purrr::map(img, dim)
   )
 
-par(mfrow = c(1, 6))
+cols <- 6
+plot_dims <- c(pmax(ceiling(nrow(scan_info)/cols), 1), pmin(nrow(scan_info), cols))
+png(filename = file.path(img_output_dir, "Alignment_Orig_files.png"), width = 300*plot_dims[2], height = 300*2*plot_dims[1], units = "px")
+par(mfrow = plot_dims)
 purrr::walk(scan_info$img, plot)
+dev.off()
 
 scan_info <- scan_info %>%
   mutate(ppi = purrr::map_dbl(im_dim, est_ppi_film)) %>%
   left_join(shoe_info)
-
 scan_info <- scan_info %>%
   mutate(align = purrr::map2(img, mask, rough_align))
 
@@ -54,31 +57,35 @@ plot_align <- function(df) {
   rgbImage(1 - df$mask, df$img, thresh_intersect) %>% plot()
 }
 
-par(mfrow = c(1, 6))
+png(filename = file.path(img_output_dir, "Alignment_Mask_Img_Align.png"), width = 300*plot_dims[2], height = 300*2*plot_dims[1], units = "px")
+par(mfrow = plot_dims)
 purrr::walk(scan_info$align, plot_align)
+dev.off()
+
+# Need to fix center-of-mass based alignment (or just search over a wider range of shifts)
+# May want to find the minimum width once angle alignment is complete and use that as "center"?
+# How to use that approach with Nikes?
+
 
 scan_info <- scan_info %>%
   mutate(aligned_img = purrr::map(align, "img"),
-         aligned_exag_img = purrr::map(align, "exag_img"),
-         clean_img = purrr::map2(aligned_img, aligned_exag_img, ~.x*(.y != 0) + img_mode(.x)*(.y==0))) %>%
-  mutate(aligned_pyr = purrr::map(clean_img, img_pyramid, scale = c(2, 3, 4, 5, 6, 7, 8)))
-
+         aligned_img_thresh = purrr::map(aligned_img, ~thresh(., w = 250, h = 250)),
+         aligned_mask = purrr::map2(align, aligned_img_thresh,
+                                    ~(1 - .y) * ((round(.x$mask + .x$exag_img) >= 1))),
+         clean_img = purrr::map2(aligned_img, aligned_mask,
+                                 ~(normalize(.x)*(.y != 0) + (.y==0)) %>%
+                                   normalize()),
+         clean_img = purrr::map2(clean_img, align, ~{
+           tmp <- .y$mask %>% dilate(makeBrush(51, "disc"))
+           (tmp ==1 )*.x + (tmp != 1)
+         })) %>%
+  mutate(clean_dim = purrr::map_int(clean_img, ~max(dim(.))))
 
 library(RNiftyReg)
-regs <- purrr::map2(scan_info$aligned_pyr[[1]]$img, scan_info$aligned_pyr[[2]]$img, niftyreg, scope = "rigid")
-
-reg1 <- niftyreg(scan_info$aligned_pyr[[1]]$img[[3]], scan_info$aligned_pyr[[2]]$img[[3]], scope = "rigid")
-reg2 <- niftyreg(scan_info$aligned_pyr[[1]]$img[[2]], scan_info$aligned_pyr[[2]]$img[[2]], scope = "rigid")
-kernel <- EBImage::makeBrush(3, "disc")
-gradient1 <- dilate(reg1$image, kernel) - erode(reg1$image, kernel)
-gradient2 <- dilate(reg2$image, kernel) - erode(reg2$image, kernel)
-
-transforms <- purrr::map(regs, "forwardTransforms")
-purrr::map2(transforms, c(2, 3, 4, 5, 6, 7, 8), ~.x[[1]][1:2, 4]*.y)
 
 align_scaled_matrix <- function(im1, im2, scale, ...) {
 
-  res <- niftyreg(im1, im2, scope = "rigid")
+  res <- niftyreg(im1, im2, scope = "rigid", init = diag(c(1, 1,1, 1)), ...)
 
   scale_mat <- matrix(1, nrow = 4, ncol = 4)
   scale_mat[1:2,4] <- scale
@@ -105,54 +112,27 @@ align_images_matrix <- function(im1, im2, affine_mat) {
   im1trans <- im1trans %>% img_pad(right = pad1dim[1], bottom = pad1dim[2], value = img_mode(.))
   im2trans <- im2 %>% img_pad(right = pad2dim[1], bottom = pad2dim[2], value = img_mode(.))
 
-  list(im1 = im1trans, im2 = im2trans, alignment = res)
+  list(im1 = im1trans, im2 = im2trans)
 }
 
-xx <- align_scaled_matrix(scan_info$aligned_pyr[[1]]$img[[1]],
-                          scan_info$aligned_pyr[[2]]$img[[1]],
-                          scale = 2)
+align_scan_data <- select(scan_info, ShoeID, Shoe_foot, date, rep, Brand, Size,
+                          clean_img) %>%
+  mutate(rep = paste0("rep", str_sub(rep, 1, 1))) %>%
+  tidyr::spread(key = rep, value = clean_img)
 
-xximg <- align_images_matrix(scan_info$clean_img[[1]],
-                             scan_info$clean_img[[2]],
-                             xx$matrix)
+align_scan_data <- align_scan_data %>%
+  mutate(scale = purrr::map2_dbl(rep1, rep2, ~ceiling(max(pmax(dim(.x), dim(.y)))/2048))) %>%
+  mutate(rep1_scaled = purrr::map2(rep1, scale, ~img_resize(.x, w = round(dim(.x)[1]/.y), h = round(dim(.x)[2]/.y))),
+         rep2_scaled = purrr::map2(rep2, scale, ~img_resize(.x, w = round(dim(.x)[1]/.y), h = round(dim(.x)[2]/.y))),
+         warp_res = purrr::pmap(list(rep1_scaled, rep2_scaled, scale), align_scaled_matrix))
 
-plot(rgbImage(xximg[[1]],
-              xximg[[2]],
-              pmax(xximg[[1]], xximg[[2]])))
+align_scan_data <- align_scan_data %>%
+  mutate(warp_matrix = purrr::map(warp_res, "matrix")) %>%
+  mutate(align_images = purrr::pmap(list(rep1, rep2, warp_matrix), align_images_matrix))
 
+plot_dims <- c(pmax(ceiling(nrow(align_scan_data)/cols), 1), pmin(nrow(align_scan_data), cols))
+png(filename = file.path(img_output_dir, "Alignment_Result.png"), width = 300*plot_dims[2], height = 300*2*plot_dims[1], units = "px")
+par(mfrow = plot_dims)
+purrr::walk(align_scan_data$align_images, ~plot(rgbImage(.[[1]], .[[2]], pmax(.[[1]], .[[2]]))))
+dev.off()
 
-im1 <- ShoeScrubR:::em_thresh(scan_info$aligned_pyr[[4]]$img[[1]])
-
-xx <- align_scaled_matrix(
-  scan_info$aligned_pyr[[4]]$img[[1]],
-  scan_info$aligned_pyr[[3]]$img[[1]],
-  scale = 2)
-
-xximg <- align_images_matrix(
-  scan_info$clean_img[[4]],
-  scan_info$clean_img[[3]],
-  xx$matrix)
-
-plot(rgbImage(xximg[[1]],
-              xximg[[2]],
-              pmax(xximg[[1]], xximg[[2]])))
-
-## Need to figure out how to handle partial images. Can restrict sample space? Align only a portion of the image? Align masks first and then align actual images based on masks? <- that one is plausible with function
-
-# xx <- align_scaled(scan_info$aligned_pyr[[1]]$img[[1]], scan_info$aligned_pyr[[2]]$img[[1]], scale = 2)
-# plot(rgbImage(scan_info$img[[1]],
-#               EBImage::affine(scan_info$img[[1]],
-#                               rbind(xx$reverseTransforms[[1]][1:2,1:2], t(xx$reverseTransforms[[1]][1:2,4]))),
-#               scan_info$img[[1]]))
-#
-# im1trans <- EBImage::affine(scan_info$align[[1]]$img,
-#                             rbind(t(xx$reverseTransforms[[1]][1:2,1:2]), xx$reverseTransforms[[1]][1:2,4]),
-#                             output.dim = dim(scan_info$align[[1]]$img), bg.col = img_mode(scan_info$img[[1]]))
-# end_dim <- pmax(dim(im1trans), dim(scan_info$align[[2]]$img))
-# pad1dim <- end_dim - dim(im1trans)
-# im1trans <- im1trans %>%
-#   img_pad(right = pad1dim[1], bottom = pad1dim[2], value = img_mode(.))
-#
-# pad2dim <- end_dim - dim(scan_info$align[[2]]$img)
-# im2trans <- scan_info$align[[2]]$img %>%
-#   img_pad(right = pad2dim[1], bottom = pad2dim[2], value = img_mode(.))
