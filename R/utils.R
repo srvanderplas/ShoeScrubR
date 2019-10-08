@@ -164,13 +164,25 @@ img_pad <- function(img, value = 0, padding = c(0, 0, 0, 0),
 }
 
 img_pad_frame <- function(x, top = 0, bottom = 0, left = 0, right = 0, value = 0) {
-  rbind(
-    matrix(value, nrow = left, ncol = ncol(x) + top + bottom),
-    cbind(matrix(value, ncol = top, nrow = nrow(x)),
-          x,
-          matrix(value, ncol = bottom, nrow = nrow(x))),
-    matrix(value, nrow = right, ncol = ncol(x) + top + bottom)
-  ) %>%
+
+  res <- x
+  if (top > 0) {
+    res <- cbind(matrix(value, ncol = top, nrow = nrow(x)), res)
+  }
+
+  if (bottom > 0) {
+    res <- cbind(res, matrix(value, ncol = bottom, nrow = nrow(x)))
+  }
+
+  if (left > 0) {
+    res <- rbind(matrix(value, nrow = left, ncol = ncol(x) + top + bottom), res)
+  }
+
+  if (right > 0) {
+    res <- rbind(res, matrix(value, nrow = right, ncol = ncol(x) + top + bottom))
+  }
+
+  res %>%
     EBImage::Image()
 }
 
