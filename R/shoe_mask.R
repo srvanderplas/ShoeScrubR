@@ -129,10 +129,13 @@ rough_align <- function(img, mask, img_fill_value = img_mode(img)) {
   exag_align <- img_rotate(exag_img, img_angle, bg.col = 0, output.dim = dim(img))
   mask_align <- img_rotate(mask, mask_angle, bg.col = 0, output.dim = dim(img))
 
+  exag_align_center <- get_mask_min(exag_align)
+  mask_align_center <- get_mask_min(mask_align)
+
   # plot(rgbImage(img_align, exag_align, mask_align))
 
   # plot(rgbImage(img, exag_img, mask))
-  shifts <- calc_shifts(exag_align, mask_align)
+  shifts <- calc_shifts(exag_align, mask_align, img_center = exag_align_center, mask_center = mask_align_center)
 
   padded_img <- img_pad(img_align, padding = shifts$img, value = img_fill_value)
   padded_exag_img <- img_pad(exag_align, padding = shifts$img, value = 0)
@@ -143,10 +146,27 @@ rough_align <- function(img, mask, img_fill_value = img_mode(img)) {
   list(img = padded_img, exag_img = padded_exag_img, mask = padded_mask)
 }
 
-calc_shifts <- function(img, mask, trim_mask = F) {
+get_mask_min <- function(mm) {
+  mask_width <- mm %>% colSums() %>% smooth.spline(df = 10)
 
-  img_center <- binary_center(img)
-  mask_center <- binary_center(mask, trim = trim_mask)
+  d1 <- mask_width %>% predict(deriv = 1) %>% as_tibble() %>%
+    rename(idx = x, d1 = y)
+  d2 <- mask_width %>% predict(deriv = 2) %>% as_tibble() %>%
+    rename(idx = x, d2 = y)
+  ds <- left_join(d1, d2, by = "idx") %>%
+    filter(d1^2 < .01 & d2 > 0) %>%
+    filter(row_number() == which.min(d1^2))
+
+  row <- ds$idx
+  col <- round(mean(which(mm[,row] > 0)))
+
+  c(col, row)
+}
+
+calc_shifts <- function(img, mask,
+                        img_center = binary_center(img),
+                        mask_center = binary_center(mask, trim = trim_mask),
+                        trim_mask = F) {
 
   mask_pad_left_top <- pmax(img_center, mask_center) - mask_center
   mask_pad_right_bottom <- mask_center - pmin(img_center, mask_center)
