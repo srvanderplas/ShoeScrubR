@@ -4,7 +4,7 @@
 #' @param filter_val value(s) of pixels to remove
 #' @param row_neg negate the rows so that the image is "right side up"?
 #' @export
-image_to_df <- function(img, filter_val = 0, row_neg = F) {
+image_to_df <- function(img, filter_val = NULL, row_neg = F) {
   imdim <- dim(img)
   px_idx <- 0:(length(img) - 1)
   df <- cbind(
