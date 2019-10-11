@@ -111,14 +111,14 @@ pca_to_angle <- function(rot) {
 #'         value and rotated via principal components so that PC1 is the
 #'         positive y-axis.
 #' @export
-rough_align <- function(img, mask, img_fill_value = img_mode(img)) {
+rough_align <- function(img, mask, img_fill_value = img_mode(img), ...) {
 
   if (!all(dim(img) == dim(mask))) {
     message("Auto-resizing mask to the size of image, preserving mask scaling")
     mask <- auto_resize_img(mask, final_dims = dim(img))
   }
 
-  exag_img <- exaggerate_img_auto(img)
+  exag_img <- exaggerate_img_auto(img, ...)
 
   # plot(rgbImage(img, exag_img, mask))
 
@@ -149,19 +149,27 @@ rough_align <- function(img, mask, img_fill_value = img_mode(img)) {
 get_mask_min <- function(mm) {
   mask_width <- mm %>% colSums() %>% smooth.spline(df = 10)
 
-  d1 <- mask_width %>% predict(deriv = 1) %>% as_tibble() %>%
-    rename(idx = x, d1 = y) %>%
-    mutate(fd_sign = sign(d1) - sign(lag(d1, 1)))
-  d2 <- mask_width %>% predict(deriv = 2) %>% as_tibble() %>%
-    rename(idx = x, d2 = y)
-  ds <- left_join(d1, d2, by = "idx") %>%
-    filter(d1^2 < .01 & d2 > 0 & fd_sign == 2) %>%
-    filter(row_number() == which.min((idx - dim(mm)[2]/2)^2))
+  d1 <- mask_width %>% predict(deriv = 1) %>% tibble::as_tibble() %>%
+    dplyr::rename(idx = x, d1 = y) %>%
+    dplyr::mutate(fd_sign = sign(d1) - sign(lag(d1, 1)))
+  d2 <- mask_width %>% predict(deriv = 2) %>% tibble::as_tibble() %>%
+    dplyr::rename(idx = x, d2 = y)
+  ds <- dplyr::left_join(d1, d2, by = "idx") %>%
+    dplyr::filter(d1^2 < .01 & d2 > 0 & fd_sign == 2) %>%
+    dplyr::filter(dplyr::row_number() == which.min((idx - dim(mm)[2]/2)^2))
 
-  row <- ds$idx
-  col <- round(mean(which(mm[,row] > 0)))
+  if (nrow(ds) > 0) {
+    row <- ds$idx
+    if (row %in% 1:ncol(mm)) {
+      col <- round(mean(which(mm[,row] > 0)))
+    } else {
+      col <- NaN
+    }
+  } else {
+    row <- col <- NaN
+  }
 
-  if (is.nan(row) | is.nan(col)) {
+  if (nrow(ds) == 0 | is.nan(row) | is.nan(col)) {
     center <- binary_center(mm, trim = T)
     row <- ifelse(is.nan(row), center[2], row)
     col <- ifelse(is.nan(col), center[1], col)
@@ -262,20 +270,21 @@ exaggerate_img_control <- function(img, gaussian_d = 125, threshold_val = .125,
 #' Exaggerate an image to a mask-like appearance automatically
 #'
 #' @param img Image
-exaggerate_img_auto <- function(img) {
+#' @param ... extra arguments, primarily to em_thresh
+exaggerate_img_auto <- function(img, ...) {
 
-  img_masked <- img_em_clean(img)
+  img_masked <- img_em_clean(img, ...)
 
   img_blur_mask <- img_clean_blur(img_masked)
 
   img_mask_clean(img_blur_mask)
 }
 
-img_em_clean <- function(img) {
+img_em_clean <- function(img, ...) {
   if (is.list(img)) {
-    return(lapply(img, img_em_clean))
+    return(lapply(img, img_em_clean, ...))
   }
-  emt <- em_thresh(img)
+  emt <- em_thresh(img, ...)
   stopifnot(length(emt$img_ratios) >= 1)
 
   labeled_img <- emt$img_ratios[[1]] %>% # EM algorithm to threshold
@@ -379,9 +388,9 @@ clean_img_corners <- function(labeled_img, len = NULL) {
 em_thresh <- function(img,
                       scale_factor = 10,
                       N = ifelse(is.null(scale_factor), pmin(length(img), 30000), NULL),
-                      ngroups = 3) {
+                      ngroups = 3, ...) {
   if (is.list(img)) {
-    return(lapply(img, em_thresh))
+    return(lapply(img, em_thresh, ...))
   }
 
   # imsmall <- sample(as.numeric(img), size = N, replace = F)
@@ -395,7 +404,7 @@ em_thresh <- function(img,
     imsmall <- img
   }
 
-  em <- mixtools::normalmixEM(imsmall, k = ngroups)
+  em <- mixtools::normalmixEM(imsmall, k = ngroups, ...)
 
   values <- cbind(em$x, em$posterior)
 
