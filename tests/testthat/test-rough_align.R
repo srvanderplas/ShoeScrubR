@@ -2,7 +2,7 @@
 # the same resolution as the shoe images (for now) because the parameters don't
 # scale well
 
-set.seed(12091038)
+set.seed(12091538)
 img_src <- matrix(1, 1000, 1000)
 
 target_region <- img_src
@@ -14,7 +14,9 @@ mask <- 1 - EBImage::erode(img, EBImage::makeBrush(51, "disc"))
 
 img_blotches <- (img_src + rnorm(1000^2, sd = 1.75)) %>%
   EBImage::Image() %>%
-  EBImage::gblur(sigma = 15, radius = 101)
+  EBImage::gblur(sigma = 19, radius = 305) %>%
+  pmax(., 0) %>%
+  pmin(., 1)
 
 noise_brush <- EBImage::makeBrush(5, "disc")
 noise_brush <- noise_brush/sum(noise_brush)
@@ -22,14 +24,16 @@ img_noise <- abs(0*img_src + rnorm(1000^2, sd = 1)) %>%
   EBImage::Image() %>%
   EBImage::filter2(noise_brush) %>%
   EBImage::thresh(w = 5, h = 5) %>%
-  EBImage::opening(EBImage::makeBrush(3, "disc"))
+  EBImage::opening(EBImage::makeBrush(3, "disc")) %>%
+  pmax(., 0) %>%
+  pmin(., 1)
 
 angles <- seq(5, 175, 10)
 img_rot <- lapply(angles, function(x) {
   z <- EBImage::rotate(img, x, bg.col = 1, output.dim = dim(img_src))
-  z <- EBImage::normalize(z) * img_blotches
+  z <- EBImage::normalize(z)
 
-  (1 - .6*(1 - z)*img_noise) %>%
+  ((1 - .6*(1 - z)*img_noise)*img_blotches) %>%
     EBImage::gblur(sigma = 3, radius = 5)
 })
 
@@ -37,16 +41,20 @@ shift_size <- 25
 img_rot_shift <- lapply(angles, function(x) {
   z <- EBImage::rotate(img, x, bg.col = 1, output.dim = dim(img_src))
   z <- EBImage::translate(z, sample(c(shift_size, 0, -shift_size), 2, replace = T), bg.col = 1)
-  z <- EBImage::normalize(z) * img_blotches
-  (1 - .6*(1 - z)*img_noise) %>%
+  z <- EBImage::normalize(z)
+  ((1 - .6*(1 - z)*img_noise)*img_blotches) %>%
     EBImage::gblur(sigma = 3, radius = 5)
 })
+
+# par(mfrow = c(6, 6))
+# purrr::walk(img_rot, plot)
+# purrr::walk(img_rot_shift, plot)
 
 ### End object setup ###
 
 
-exag_imgs <- exaggerate_img_to_mask(img_rot, gaussian_d = 15, threshold_val = 0.14, opening_d = 11, closing_d = 101)
-exag_imgs_shift <- exaggerate_img_to_mask(img_rot_shift, gaussian_d = 15, threshold_val = 0.14, opening_d = 11, closing_d = 101)
+exag_imgs <- ShoeScrubR:::exaggerate_img_control(img_rot, gaussian_d = 15, threshold_val = 0.12, opening_d = 5, closing_d = 55)
+exag_imgs_shift <- ShoeScrubR:::exaggerate_img_control(img_rot_shift, gaussian_d = 15, threshold_val = 0.14, opening_d = 11, closing_d = 101)
 
 # par(mfrow = c(6, 6))
 # purrr::walk(exag_imgs, plot)
@@ -58,6 +66,15 @@ test_that("exag images have balance of white/black pixels", {
   prop_white_shift <- purrr::map_dbl(exag_imgs_shift, mean)
   expect_true(all(prop_white_shift < .1))
 })
+
+
+
+exag_imgs <- ShoeScrubR:::exaggerate_img_auto(img_rot, ngroups = 2, fast = T, epsilon = 1e-04)
+exag_imgs_shift <- ShoeScrubR:::exaggerate_img_auto(img_rot_shift, ngroups = 2, fast = T)
+
+par(mfrow = c(6, 6))
+purrr::walk(exag_imgs, plot)
+purrr::walk(exag_imgs_shift, plot)
 
 
 est_angles <- align_prcomp(exag_imgs) %>% as.numeric()
@@ -89,19 +106,15 @@ test_that("estimated shifts are symmetric", {
   expect_true(all(est_shifts_1$mask.left == est_shifts_1$img.right))
 })
 
-
 rough_alignment <- lapply(img_rot, function(x)
-  rough_align(x, mask,
-              exaggerate_pars = list(gaussian_d = 15, threshold_val = 0.1, opening_d = 11, closing_d = 101),
-              img_fill_value = 1))
+  rough_align(x, mask, img_fill_value = 1, ngroups = 2))
 
 rough_alignment_shift <- lapply(img_rot_shift, function(x)
-  rough_align(x, mask,
-              exaggerate_pars = list(gaussian_d = 15, threshold_val = 0.1, opening_d = 11, closing_d = 101),
-              img_fill_value = 1))
+  rough_align(x, mask, img_fill_value = 1, ngroups = 2))
 
-# purrr::walk(rough_alignment, ~plot(EBImage::rgbImage(.$img, (1 - .$exag_img), 1 - .$mask)))
-# purrr::walk(rough_alignment_shift, ~plot(EBImage::rgbImage(.$img, (1 - .$exag_img), 1 - .$mask)))
+# par(mfrow = c(6, 6))
+purrr::walk(rough_alignment, ~plot(EBImage::rgbImage(.$img, (1 - .$exag_img), 1 - .$mask)))
+purrr::walk(rough_alignment_shift, ~plot(EBImage::rgbImage(.$img, (1 - .$exag_img), 1 - .$mask)))
 
 test_that("aligned images overlap with mask", {
   expect_true(all(purrr::map_dbl(rough_alignment, ~mean((1 - .$img)*.$mask)/mean(1 - .$img)) > .94))
