@@ -7,7 +7,7 @@ test_img <- test_img %>% EBImage::Image()
 
 
 test_that("image_to_df works", {
-  df <- image_to_df(test_img) %>%
+  df <- image_to_df(test_img, filter_val = 0) %>%
     dplyr::arrange(row, col)
 
   expect_equal(df$row, test_white_px[,1])
