@@ -9,7 +9,7 @@ lss_dir <- "/lss/research/csafe-shoeprints/ShoeImagingPermanent"
 
 # For a bunch of images...
 full_imglist <- list.files("/lss/research/csafe-shoeprints/ShoeImagingPermanent/",
-                           pattern = "00[1-6]\\d{3}[L]_\\d{8}_5_._1_.*_.*_.*", full.names = T)
+                           pattern = "00[4-9]\\d{3}[L]_\\d{8}_5_._1_.*_.*_.*", full.names = T)
 dir <- "/tmp/film-prints"
 if (!dir.exists(dir)) dir.create(dir)
 
@@ -38,17 +38,16 @@ scan_info <- tibble(
     im_dim = purrr::map(img, dim)
   )
 
-cols <- 6
+cols <- 12
 plot_dims <- c(pmax(ceiling(nrow(scan_info)/cols), 1), pmin(nrow(scan_info), cols))
-png(filename = file.path(img_output_dir, "Alignment_Orig_files.png"), width = 300*plot_dims[2], height = 300*2*plot_dims[1], units = "px")
+# png(filename = file.path(img_output_dir, "Alignment_Orig_files.png"), width = 300*plot_dims[2], height = 300*2*plot_dims[1], units = "px")
 par(mfrow = plot_dims)
 purrr::walk(scan_info$img, plot)
-dev.off()
+# dev.off()
 
 scan_info <- scan_info %>%
   mutate(ppi = purrr::map_dbl(im_dim, est_ppi_film)) %>%
-  left_join(shoe_info)
-scan_info <- scan_info %>%
+  left_join(shoe_info) %>%
   mutate(align = purrr::map2(img, mask, rough_align))
 
 
@@ -57,10 +56,10 @@ plot_align <- function(df) {
   rgbImage(1 - df$mask, df$img, thresh_intersect) %>% plot()
 }
 
-png(filename = file.path(img_output_dir, "Alignment_Mask_Img_Align.png"), width = 300*plot_dims[2], height = 300*2*plot_dims[1], units = "px")
+# png(filename = file.path(img_output_dir, "Alignment_Mask_Img_Align.png"), width = 300*plot_dims[2], height = 300*2*plot_dims[1], units = "px")
 par(mfrow = plot_dims)
 purrr::walk(scan_info$align, plot_align)
-dev.off()
+# dev.off()
 
 # Need to fix center-of-mass based alignment (or just search over a wider range of shifts)
 # May want to find the minimum width once angle alignment is complete and use that as "center"?
@@ -69,6 +68,7 @@ dev.off()
 
 scan_info <- scan_info %>%
   mutate(aligned_img = purrr::map(align, "img"),
+         # aligned_mask = purrr::map(align, "mask")
          aligned_img_thresh = purrr::map(aligned_img, ~thresh(., w = 250, h = 250)),
          aligned_mask = purrr::map2(align, aligned_img_thresh,
                                     ~(1 - .y) * ((round(.x$mask + .x$exag_img) >= 1))),
@@ -78,14 +78,16 @@ scan_info <- scan_info %>%
          clean_img = purrr::map2(clean_img, align, ~{
            tmp <- .y$mask %>% dilate(makeBrush(51, "disc"))
            (tmp ==1 )*.x + (tmp != 1)
-         })) %>%
-  mutate(clean_dim = purrr::map_int(clean_img, ~max(dim(.))))
+         })
+) %>%
+  mutate(clean_dim = purrr::map_int(aligned_img, ~max(dim(.))))
 
 library(RNiftyReg)
 
-align_scaled_matrix <- function(im1, im2, scale, ...) {
+align_scaled_matrix <- function(im1, im2, scale, im1mask = NULL, im2mask = NULL, ...) {
 
-  res <- niftyreg(im1, im2, scope = "rigid", init = diag(c(1, 1,1, 1)), ...)
+  res <- niftyreg(im1, im2, scope = "rigid", init = diag(c(1, 1, 1, 1)),
+                  sourceMask = im1mask, targetMask = im2mask, estimateOnly = T, ...)
 
   scale_mat <- matrix(1, nrow = 4, ncol = 4)
   scale_mat[1:2,4] <- scale
@@ -117,22 +119,77 @@ align_images_matrix <- function(im1, im2, affine_mat) {
 
 align_scan_data <- select(scan_info, ShoeID, Shoe_foot, date, rep, Brand, Size,
                           clean_img) %>%
-  mutate(rep = paste0("rep", str_sub(rep, 1, 1))) %>%
-  tidyr::spread(key = rep, value = clean_img)
+  mutate(rep = paste0("img", str_sub(rep, 1, 1))) %>%
+  tidyr::spread(key = rep, value = clean_img) %>%
+  left_join(
+    select(scan_info, ShoeID, Shoe_foot, date, rep, Brand, Size,
+           aligned_mask) %>%
+      mutate(rep = paste0("mask", str_sub(rep, 1, 1))) %>%
+      tidyr::spread(key = rep, value = aligned_mask)
+  ) %>%
+  left_join(
+    select(scan_info, ShoeID, Shoe_foot, date, rep, Brand, Size,
+           aligned_img) %>%
+      mutate(rep = paste0("orig_img", str_sub(rep, 1, 1))) %>%
+      tidyr::spread(key = rep, value = aligned_img)
+  )
 
 align_scan_data <- align_scan_data %>%
-  mutate(scale = purrr::map2_dbl(rep1, rep2, ~ceiling(max(pmax(dim(.x), dim(.y)))/2048))) %>%
-  mutate(rep1_scaled = purrr::map2(rep1, scale, ~img_resize(.x, w = round(dim(.x)[1]/.y), h = round(dim(.x)[2]/.y))),
-         rep2_scaled = purrr::map2(rep2, scale, ~img_resize(.x, w = round(dim(.x)[1]/.y), h = round(dim(.x)[2]/.y))),
-         warp_res = purrr::pmap(list(rep1_scaled, rep2_scaled, scale), align_scaled_matrix))
+  mutate(scale = purrr::map2_dbl(img1, img2, ~ceiling(max(pmax(dim(.x), dim(.y)))/2048))) %>%
+  mutate(img1_scaled = purrr::map2(img1, scale,
+                                   ~img_resize(.x, w = round(dim(.x)[1]/.y),
+                                               h = round(dim(.x)[2]/.y))),
+         img2_scaled = purrr::map2(img2, scale,
+                                   ~img_resize(.x, w = round(dim(.x)[1]/.y),
+                                               h = round(dim(.x)[2]/.y))),
+         mask1_scaled = purrr::map2(mask1, scale,
+                                   ~img_resize(.x, w = round(dim(.x)[1]/.y),
+                                               h = round(dim(.x)[2]/.y))),
+         mask2_scaled = purrr::map2(mask2, scale,
+                                   ~img_resize(.x, w = round(dim(.x)[1]/.y),
+                                               h = round(dim(.x)[2]/.y))),
+         warp_res = purrr::pmap(list(img1_scaled, img2_scaled, scale),
+                                align_scaled_matrix))
 
 align_scan_data <- align_scan_data %>%
   mutate(warp_matrix = purrr::map(warp_res, "matrix")) %>%
-  mutate(align_images = purrr::pmap(list(rep1, rep2, warp_matrix), align_images_matrix))
+  mutate(align_bin_images = purrr::pmap(list(img1, img2, warp_matrix), align_images_matrix))
 
+align_scan_data <- align_scan_data %>%
+  mutate(align_images = purrr::pmap(list(orig_img1, orig_img2, warp_matrix), align_images_matrix))
+
+cols <- 6
 plot_dims <- c(pmax(ceiling(nrow(align_scan_data)/cols), 1), pmin(nrow(align_scan_data), cols))
-png(filename = file.path(img_output_dir, "Alignment_Result.png"), width = 300*plot_dims[2], height = 300*2*plot_dims[1], units = "px")
+# png(filename = file.path(img_output_dir, "Alignment_Result.png"), width = 300*plot_dims[2], height = 300*2*plot_dims[1], units = "px")
 par(mfrow = plot_dims)
 purrr::walk(align_scan_data$align_images, ~plot(rgbImage(.[[1]], .[[2]], pmax(.[[1]], .[[2]]))))
-dev.off()
+# dev.off()
 
+## Testing whether image scaling affects time or results...
+res <- select(align_scan_data, 1:5, warp_res)
+
+
+align_scan_data <- align_scan_data %>%
+  mutate(scale = purrr::map2_dbl(img1, img2, ~ceiling(max(pmax(dim(.x), dim(.y)))/512))) %>%
+  mutate(img1_scaled = purrr::map2(img1, scale,
+                                   ~img_resize(.x, w = round(dim(.x)[1]/.y),
+                                               h = round(dim(.x)[2]/.y))),
+         img2_scaled = purrr::map2(img2, scale,
+                                   ~img_resize(.x, w = round(dim(.x)[1]/.y),
+                                               h = round(dim(.x)[2]/.y))),
+         mask1_scaled = purrr::map2(mask1, scale,
+                                    ~img_resize(.x, w = round(dim(.x)[1]/.y),
+                                                h = round(dim(.x)[2]/.y))),
+         mask2_scaled = purrr::map2(mask2, scale,
+                                    ~img_resize(.x, w = round(dim(.x)[1]/.y),
+                                                h = round(dim(.x)[2]/.y))),
+         warp_res = purrr::pmap(list(img1_scaled, img2_scaled, scale),
+                                align_scaled_matrix))
+
+align_scan_data <- align_scan_data %>%
+  mutate(warp_matrix = purrr::map(warp_res, "matrix")) %>%
+  mutate(align_bin_images = purrr::pmap(list(img1, img2, warp_matrix), align_images_matrix)) %>%
+  mutate(align_images = purrr::pmap(list(orig_img1, orig_img2, warp_matrix), align_images_matrix))
+
+par(mfrow = plot_dims)
+purrr::walk(align_scan_data$align_images, ~plot(rgbImage(.[[1]], .[[2]], pmax(.[[1]], .[[2]]))))
