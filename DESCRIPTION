@@ -20,6 +20,8 @@ Imports:
     tidyr,
     EBImage,
     purrr,
-    mixtools
+    mixtools,
+    abind,
+    tibble
 Suggests: 
     testthat (>= 2.1.0)

@@ -43,6 +43,7 @@ img_em_clean <- function(img, ...) {
 #' @param scale_factor Alternative to N - scales image by a factor of scale_factor
 #' @param ngroups Number of clusters
 #' @param quiet suppress output from normalmixEM using sink()?
+#' @param ... additional arguments to mixtools::normalmixEM
 #' @importFrom mixtools normalmixEM
 #' @importFrom stats dnorm
 #' @importFrom abind abind

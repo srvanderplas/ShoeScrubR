@@ -39,9 +39,9 @@ image_to_df <- function(img, filter_val = NULL, row_neg = F) {
 #' dim(im)
 #' plot(im)
 #'
-#' im_pad <- pad_to_center(im, center = c(200, 200), value = c(0, 1, 0))
+#' im_pad <- img_pad_to_center(im, center = c(200, 200), value = c(0, 1, 0))
 #' dim(im_pad)
-#' plot(im_pad, all = T)
+#' plot(im_pad, all = TRUE)
 img_pad_to_center <- function(img, center = round(dim(img)/2), value = 0) {
   if (is.list(img)) {
     return(lapply(img, img_pad_to_center, center = center, value = value))
@@ -71,8 +71,8 @@ img_pad_to_center <- function(img, center = round(dim(img)/2), value = 0) {
 #' Pad image so that it is of the specified size
 #'
 #' @param img image
-#' @param dim dimensions of the output image (cannot be smaller than the
-#'            current dimensions)
+#' @param size dimensions of the output image (cannot be smaller than the
+#'             current dimensions)
 #' @param value fill value to use for padding the image.
 #'              If value has the same length as the number of frames in the
 #'              image, it will be applied frame-wise.
@@ -86,7 +86,7 @@ img_pad_to_center <- function(img, center = round(dim(img)/2), value = 0) {
 #'
 #' im_pad <- img_pad_to_size(im, size = c(550, 540), value = c(0, 1, 0))
 #' dim(im_pad)
-#' plot(im_pad, all = T)
+#' plot(im_pad, all = TRUE)
 img_pad_to_size <- function(img, size = dim(img), value = 0) {
   if (is.list(img)) {
     return(lapply(img, img_pad_to_size, size, value = value))
@@ -344,20 +344,21 @@ crop_frame <- function(x, left_top, right_bottom) {
 #' @export
 #' @importFrom EBImage getFrames colorMode Image
 #' @importFrom abind abind
+#' @importFrom stats median
 #' @examples
 #'
 #' par(mfrow = c(1, 3))
 #' im <- EBImage::readImage(system.file('images', 'nuclei.tif', package='EBImage'))
 #' dim(im)
-#' plot(im, all = T)
+#' plot(im, all = TRUE)
 #'
 #' im_sm <- auto_resize_img(im, c(510, 490))
 #' dim(im_sm)
-#' plot(im_sm, all = T)
+#' plot(im_sm, all = TRUE)
 #'
 #' im_big <- auto_resize_img(im, c(510, 550), value = c(0, .25, .5, .75))
 #' dim(im_big)
-#' plot(im_big, all = T)
+#' plot(im_big, all = TRUE)
 auto_resize_img <- function(img, final_dims, value = NULL) {
   y <- EBImage::getFrames(img)
 
@@ -380,6 +381,7 @@ auto_resize_img <- function(img, final_dims, value = NULL) {
 }
 
 auto_resize_frame <- function(x, final_dims, value = NULL) {
+  . <- NULL
   img_dims <- dim(x)
   diffs <- img_dims - final_dims
 
@@ -433,7 +435,7 @@ auto_resize_frame <- function(x, final_dims, value = NULL) {
     # Need to pad
     # Get pad value - median pixel from 10 cols on each edge of the image
     if (is.null(value)) {
-      value <- median(new_img[, c(1:10,(img_dims[2] - 10):img_dims[2])])
+      value <- stats::median(new_img[, c(1:10,(img_dims[2] - 10):img_dims[2])])
     }
     # Create new image
     temp_img <- matrix(value, nrow = nrow(new_img), ncol = final_dims[2]) %>% EBImage::as.Image()
@@ -459,7 +461,7 @@ auto_resize_frame <- function(x, final_dims, value = NULL) {
 #' @return tibble containing columns img, scale, dim, and (if original image
 #'         list is named) img_name. The img column will contain the scaled image
 #' @export
-img_pyramid <- function(img, scale, resize_args = list()) {
+img_pyramid <- function(img, scale) {
 
   if (EBImage::is.Image(img)) {
     img <- list(img)
@@ -488,6 +490,8 @@ img_pyramid <- function(img, scale, resize_args = list()) {
 #'        reduced to a random sample of size before tabulation
 #' @export
 img_mode <- function(img, digits = 2, size = 50000) {
+  . <- NULL
+
   if (is.list(img)) {
     return(lapply(img, img_mode, digits = digits, size = size))
   }

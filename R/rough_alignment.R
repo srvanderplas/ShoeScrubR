@@ -10,6 +10,7 @@
 #' @param weighted should weighted calculation be used?
 #' @param ... additional arguments to image_to_df
 #' @return angle to rotate the image by (in degrees)
+#' @importFrom utils hasName
 #' @export
 align_prcomp <- function(img = NULL, weighted = T, ...) {
   if (is.list(img) & !is.data.frame(img)) {
@@ -23,7 +24,7 @@ align_prcomp <- function(img = NULL, weighted = T, ...) {
   }
   stopifnot(!is.null(img_df))
 
-  if (hasName(img_df, "value") & weighted) {
+  if (utils::hasName(img_df, "value") & weighted) {
     rowmean <- mean(img_df$row, weight = img_df$value, na.rm = T)
     colmean <- mean(img_df$col, weight = img_df$value, na.rm = T)
     img_df$row <- img_df$row - rowmean
@@ -38,7 +39,7 @@ align_prcomp <- function(img = NULL, weighted = T, ...) {
 
   df <- img_df[,c("row", "col")] %>% as.matrix()
 
-  pca <- prcomp(df*sqrt(weight), center = center, scale = F)
+  pca <- stats::prcomp(df*sqrt(weight), center = center, scale = F)
 
   if (sum(sign(pca$rotation)) < -1) pca$rotation <- pca$rotation * -1 # Make most PC vals positive
 
@@ -70,7 +71,7 @@ pca_to_angle <- function(rot) {
 #' @param mask Mask; white (signal) and black (bkgd)
 #' @param img_fill_value value to fill any image padding with; defaults to the
 #'        mode value (as calculated by \code{\link{img_mode}}).
-#' @param ...
+#' @param ... extra parameters to pass to em_thresh for automatic thresholding
 #' @return list containing image and mask which have been aligned to center
 #'         value and rotated via principal components so that PC1 is the
 #'         positive y-axis.
@@ -118,19 +119,22 @@ rough_align <- function(img, mask, img_fill_value = img_mode(img), ...) {
 #'
 #' @param img Image
 #' @return center (row, col) of the location of the arch in the mask
+#' @export
+#' @importFrom stats smooth.spline
 #' @examples
 #' library(ShoeScrubR)
-#' get_mask("Nike", 10, "L") %>%
+#' shoe_mask("Nike", 10, "L") %>%
 #' get_mask_arch()
 get_mask_arch <- function(img) {
-  mask_width <- img %>% colSums() %>% smooth.spline(df = 10)
+  fd_sign <- idx <- x <- y <- NULL
+  mask_width <- img %>% colSums() %>% stats::smooth.spline(df = 10)
 
-  d1 <- mask_width %>% predict(deriv = 1) %>% tibble::as_tibble() %>%
+  d1 <- mask_width %>% stats::predict(deriv = 1) %>% tibble::as_tibble() %>%
     dplyr::rename(idx = x, d1 = y) %>%
     dplyr::mutate(
       d1 = round(d1, 8),
       fd_sign = sign(d1) - sign(dplyr::lag(d1, 1)))
-  d2 <- mask_width %>% predict(deriv = 2) %>% tibble::as_tibble() %>%
+  d2 <- mask_width %>% stats::predict(deriv = 2) %>% tibble::as_tibble() %>%
     dplyr::rename(idx = x, d2 = y) %>%
     dplyr::mutate(d2 = round(d2, 8))
   ds <- dplyr::left_join(d1, d2, by = "idx") %>%

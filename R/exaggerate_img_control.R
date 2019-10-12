@@ -45,6 +45,7 @@ img_open_close <- function(img, opening_d, closing_d, opening_shape = "disc", cl
 #'        a heuristic approach.
 #' @export
 clean_initial_img <- function(img, gaussian_d = 25, threshold_val = .15) {
+  . <- NULL
   if (is.list(img)) {
     return(lapply(img, clean_initial_img, gaussian_d = gaussian_d, threshold_val = threshold_val))
   }
@@ -75,7 +76,7 @@ clean_initial_img <- function(img, gaussian_d = 25, threshold_val = .15) {
 #'
 #' @description Calculate the center of mass of a binary image, with or without trimming
 #' @param img image/matrix
-#' @param trim Trim 5% from each side of the image? (Useful for removing page boundary issues)
+#' @param trim Trim 5\% from each side of the image? (Useful for removing page boundary issues)
 #'
 #' @export
 binary_center <- function(img, trim = T) {

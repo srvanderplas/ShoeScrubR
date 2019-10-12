@@ -10,8 +10,8 @@
 #' @export
 #' @examples
 #' shoe_mask("Nike", 10.5, "R") %>% plot()
-#' plot(normalize(shoe_mask("Nike", 10, "R") + shoe_mask("Nike", 10.5, "R")))
 shoe_mask <- function(brand, size, foot, ppi = 300) {
+  . <- NULL
   stopifnot(brand %in% c("Adidas", "Nike"))
   if (brand == "Adidas") {
     stopifnot(size %in% c(7, 7.5, 10, 10.5))
