@@ -7,7 +7,7 @@ addons:
   apt:
     update: true
     packages:
-      - libfftw3-3
+      - libfftw3-dev
 
 r_binary_packages:
   - covr
