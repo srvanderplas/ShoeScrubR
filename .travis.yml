@@ -1,0 +1,23 @@
+# R for travis: see documentation at https://docs.travis-ci.com/user/languages/r
+
+language: R
+
+r_binary_packages:
+  - covr
+  - purrr
+  - magrittr
+  - dplyr
+  - tidyr
+  - EBImage
+  - abind
+  - tibble
+  - mixtools
+
+cache:
+  packages: true
+  directories:
+    - /usr/local/lib/R/site-library
+    - /usr/lib/R
+
+after_success:
+  - Rscript -e 'covr::codecov()'
