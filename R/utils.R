@@ -44,7 +44,7 @@ image_to_df <- function(img, filter_val = NULL, row_neg = F) {
 #' plot(im_pad, all = T)
 img_pad_to_center <- function(img, center = round(dim(img)/2), value = 0) {
   if (is.list(img)) {
-    lapply(img, img_pad_to_size, size = size, value = value)
+    return(lapply(img, img_pad_to_center, center = center, value = value))
   }
   stopifnot(EBImage::is.Image(img))
 
@@ -111,12 +111,12 @@ img_pad_to_size <- function(img, size = dim(img), value = 0) {
 #' Pad an image
 #'
 #' @param img image
-#' @param value fill value to use for padding the image.
-#'              If value has the same length as the number of frames in the
-#'              image, it will be applied frame-wise.
 #' @param padding vector of four padding values (top, bottom, left, right).
 #'                Specifying any one of the individual values will override the
 #'                vector specification.
+#' @param value fill value to use for padding the image.
+#'              If value has the same length as the number of frames in the
+#'              image, it will be applied frame-wise.
 #' @param top number of pixels to add to the top
 #' @param bottom number of pixels to add to the bottom
 #' @param left number of pixels to add to the left
@@ -137,7 +137,7 @@ img_pad_to_size <- function(img, size = dim(img), value = 0) {
 #' im_pad <- img_pad(im, value = c(0, 1, 0), padding = c(15, 10, 5, 0))
 #' dim(im_pad)
 #' plot(im_pad)
-img_pad <- function(img, value = 0, padding = c(0, 0, 0, 0),
+img_pad <- function(img, padding = c(0, 0, 0, 0), value = 0,
                     top = padding[1], bottom = padding[2],
                     left = padding[3], right = padding[4]) {
   if (is.list(img)) {
@@ -224,7 +224,7 @@ img_resize <- function(img, ...) {
 #' @export
 img_translate <- function(img, v, ...) {
   if (is.list(img)) {
-    return(lapply(img, img_translate, ...))
+    return(lapply(img, img_translate, v = v, ...))
   }
   stopifnot(EBImage::is.Image(img))
 
@@ -249,7 +249,11 @@ img_translate <- function(img, v, ...) {
 #' @export
 img_rotate <- function(img, angle, ...) {
   if (is.list(img)) {
-    return(lapply(img, img_rotate, angle = angle, ...))
+    if (length(angle) > 1) {
+      return(mapply(img_rotate, img, angle, ..., SIMPLIFY = F))
+    } else {
+      return(lapply(img, img_rotate, angle = angle, ...))
+    }
   }
   stopifnot(EBImage::is.Image(img))
 
@@ -461,18 +465,43 @@ img_pyramid <- function(img, scale, resize_args = list()) {
     img <- list(img)
   }
 
-  if (!is.null(names(img))) {
-    imgdf$img_name <- names(img) %>% make.unique()
-  }
-
-
   imgdf <- tidyr::crossing(img = img, scale = scale) %>%
     dplyr::mutate(
       dim = purrr::map2(img, scale, ~floor(dim(.x)/.y)),
       img = purrr::map2(img, dim, ~img_resize(img = .x, w = .y[1], h = .y[2]))
     )
 
+  if (!is.null(names(img))) {
+    imgdf$img_name <- names(img) %>% make.unique()
+  }
+
   stopifnot(c("img", "scale", "dim") %in% names(imgdf))
 
   return(imgdf)
+}
+
+#' Get most common pixel value (approx)
+#'
+#' @param img Image
+#' @param digits precision of numerical values
+#' @param size size of sample - if img has more than size pixels, it will be
+#'        reduced to a random sample of size before tabulation
+#' @export
+img_mode <- function(img, digits = 2, size = 50000) {
+  if (is.list(img)) {
+    return(lapply(img, img_mode, digits = digits, size = size))
+  }
+
+  v <- img %>%
+    EBImage::normalize() %>%
+    EBImage::imageData() %>%
+    as.vector()
+
+  if (length(v) > size) v <- sample(v, size = size, replace = F)
+  v %>%
+    round(., digits = digits) %>%
+    table() %>%
+    sort(decreasing = T) %>%
+    names() %>% `[`(1) %>%
+    as.numeric()
 }
