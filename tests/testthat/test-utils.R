@@ -31,6 +31,8 @@ test_that("img_pad_to_center works", {
   expect_equal(attr(pad12, "operation"),
                list(list(type = "pad", top_bottom = c(8, 0), left_right = c(4, 0),
                          value = 0.5)))
+  tmp <- img_pad_to_center(list(test_img, test_img), c(1, 2), .5)
+  expect_equal(tmp[[1]], tmp[[2]])
 })
 
 test_that("img_pad_to_size works", {
@@ -47,6 +49,21 @@ test_that("img_pad_to_size works", {
   expect_equal(attr(pad12, "operation"),
                list(list(type = "pad", top_bottom = c(6, 6), left_right = c(5, 5),
                          value = 0.5)))
+
+  tmp <- img_pad_to_size(list(test_img, test_img), c(20, 20), .5)
+  expect_equal(tmp[[1]], tmp[[2]])
+})
+
+
+test_that("img_pad works", {
+  pad12 <- img_pad(test_img, padding = c(0, 20, 0, 20), value = .5)
+  expect_equal(EBImage::imageData(pad12)[,9:28],
+               matrix(.5, 30, 20, dimnames = list(NULL, NULL)))
+  expect_equal(EBImage::imageData(pad12)[11:30,],
+               matrix(.5, 20, 28, dimnames = list(NULL, NULL)))
+
+  tmp <- img_pad(list(test_img, test_img), padding = c(0, 20, 0, 20), value = .5)
+  expect_equal(tmp[[1]], tmp[[2]])
 })
 
 test_that("img_resize works", {
@@ -65,6 +82,11 @@ test_that("img_rotate works", {
   expect_equal(EBImage::imageData(rotate_test), EBImage::imageData(rotate_ebimage))
   expect_equal(attr(rotate_test, "operation"),
                list(list(type = "rotate", angle = 45, other_args = list())))
+
+  tmp <- img_rotate(list(test_img, test_img), 90, bg.col = .5)
+  expect_equal(tmp[[1]], tmp[[2]])
+  tmp <- img_rotate(list(test_img, test_img), c(90, -90), bg.col = .5)
+  expect_equivalent(tmp[[1]], EBImage::rotate(tmp[[2]], 180))
 })
 
 
@@ -75,6 +97,9 @@ test_that("img_translate works", {
   expect_equal(EBImage::imageData(translate_test), EBImage::imageData(translate_ebimage))
   expect_equal(attr(translate_test, "operation"),
                list(list(type = "translate", vector = c(2, 1), other_args = list())))
+
+  tmp <- img_translate(list(test_img, test_img), v = c(20, 20), bg.col = .5)
+  expect_equal(tmp[[1]], tmp[[2]])
 })
 
 
@@ -96,4 +121,44 @@ test_that("img_crop works", {
                          center = c(4, 4),
                          top_corner = c(1, 2),
                          bottom_corner = c(8, 7))))
+
+  expect_equal(test_img, img_crop(test_img, dim(test_img)))
+
+  tmp <- img_crop(list(test_img, test_img), c(8, 6))
+  expect_equal(tmp[[1]], tmp[[2]])
+})
+
+test_that("img_resize works", {
+    resize_test <- img_resize(test_img, w = dim(test_img)[1]*2, h = dim(test_img)[2]*2)
+    resize_ebimage <- EBImage::resize(test_img, w = dim(test_img)[1]*2, h = dim(test_img)[2]*2)
+
+    expect_equal(EBImage::imageData(resize_test), EBImage::imageData(resize_ebimage))
+    expect_equal(attr(resize_test, "operation"),
+                 list(list(type = "resize", orig_dim = c(10, 8), final_dim = c(20, 16), other_args = list(w = 20, h = 16))))
+
+    tmp <- img_resize(list(test_img, test_img), w = dim(test_img)[1]*2, h = dim(test_img)[2]*2)
+    expect_equal(tmp[[1]], tmp[[2]])
+})
+
+test_that("img_mode works", {
+  tmp <- img_mode(list(test_img, test_img))
+  expect_equal(tmp[[1]], tmp[[2]])
+})
+
+test_that("img_pyramid works", {
+  tmp <- img_pyramid(test_img, scale = c(2, 1, .5))
+  expect_equal(tmp$dim, list(c(20, 16), c(10, 8), c(5, 4)))
+  tmp <- img_pyramid(list(a = test_img), scale = c(2, 1, .5))
+  expect_equal(tmp$img_name, rep("a", 3))
+})
+
+test_that("auto_resize_img works", {
+  test_img <- EBImage::readImage(system.file('images', 'nuclei.tif', package = 'EBImage'))
+  test_img2 <- auto_resize_img(test_img, c(490, 550), value = c(0, .25, .5, .75))
+  test_img3 <- auto_resize_img(test_img, c(550, 490), value = c(0, .25, .5, .75))
+  test_img4 <- auto_resize_img(test_img, c(550, 490))
+  expect_equal(dim(test_img2), dim(test_img) + c(-20, 40, 0))
+  expect_equal(as.numeric(test_img2[200, 550,]), c(0, .25, .5, .75))
+  expect_equal(as.numeric(test_img3[550, 200,]), c(0, .25, .5, .75))
+  expect_equal(dim(test_img3), dim(test_img4))
 })
