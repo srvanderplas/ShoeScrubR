@@ -1,0 +1,11 @@
+^LICENSE\.md$
+^.*\.Rproj$
+^\.Rproj\.user$
+^extra$
+^data-raw$
+^dev-scripts$
+^inst/shoe_samples$
+^\.travis\.yml$
+^README\.Rmd$
+^codecov\.yml$
+^\.covrignore$
