@@ -2,92 +2,180 @@
 #'
 #' @param im1 Image 1
 #' @param im2 Image 2
+#' @param signal What intensity is the signal in the image? 1 = white, 0 = black
+#' @param show_bg Should rotations and translations of images use a visible background?
+#' @param angle.lim Restrict search to angles between (-angle.lim, angle.lim)
+#'                  (in radians). Defaults to pi/18, or ~10 degrees.
+#' @param trans.lim Restrict search to coordinates between
+#'                  (-trans.lim[1], trans.lim[1]) x (-trans.lim[2], trans.lim[2]).
+#'                  Defaults to (200, 200)
 #' @param ... extra arguments passed to e.g. hanning_2d providing the widening
 #'            exponents.
 #' @export
 #' @examples
-#' img1 <- matrix(1, nrow = 150, ncol = 150) %>% EBImage::as.Image()
-#' img1[40:120, 70:90] <- 0
-#' img1[30:35, 40:120] <- 0
-#' img1[83:85, 90:105] <- .5
-#' img2 <- img_rotate(img1, 15, output.origin = c(75,75), output.dim = c(150, 150), bg.col = 1) %>%
-#'           img_translate(v = c(5, 5), output.dim = c(150, 150), bg.col = 1)
+#' img1 <- matrix(1, nrow = 1500, ncol = 1500) %>% EBImage::as.Image()
+#' img1[400:1200, 700:900] <- 0
+#' img1[300:350, 400:1200] <- 0
+#' img1[830:850, 900:1050] <- .5
+#' img2 <- img1 %>%
+#'           img_translate(v = c(50, 50), output.dim = c(1500, 1500), bg.col = 1) %>%
+#'           img_rotate(15, output.origin = c(750,750), output.dim = c(1500, 1500), bg.col = 1)
 #'
-#' img1 <- img1 + rnorm(length(img1), sd = .15)
-#' img2 <- img2 + rnorm(length(img1), sd = .15)
+#' noise1 <- sample(c(0, 1), length(img1), prob = c(.9, .1), replace = T) * rnorm(length(img1), sd = .15)
+#' noise2 <- sample(c(0, 1), length(img1), prob = c(.9, .1), replace = T) * rnorm(length(img1), sd = .15)
+#' img1 <- pmin(pmax(img1 + noise1, 0), 1)
+#' img2 <- pmin(pmax(img2 + noise2, 0), 1)
 #'
-#' plot(EBImage::rgbImage(img2, img1, pmin(img1, img2)))
 #' res <- fft_align(img1, img2)
-#' plot(EBImage::rgbImage(res[[1]], res[[2]], pmin(res[[1]], res[[2]])))
-fft_align <- function(im1, im2, ...) {
+#'
+#' par(mfrow = c(2, 2))
+#' # Initial images
+#' plot(EBImage::rgbImage(img2, img1, pmin(img1, img2)))
+#' # First, show what the post-angle-recovery images look like
+#' plot(EBImage::rgbImage(res$angle[[1]], res$angle[[2]], pmin(res$angle[[1]], res$angle[[2]])))
+#' # Fully transformed imgs
+#' plot(EBImage::rgbImage(res$res[[1]], res$res[[2]], pmin(res$res[[1]], res$res[[2]])))
+fft_align <- function(im1, im2, signal = 1, show_bg = F,
+                      angle.lim = pi/18, trans.lim = c(200, 200), ...) {
+
+  # Ensure same size, origin
+  ims <- pad_img_match(im1, im2)
+  img_size <- dim(ims[[1]])
+  img_origin <- round(img_size/2)
+
+  # Keep bkgd?
+  bg_col <- ifelse(show_bg, 0.5, 1 - signal)
+
+  # Apply Hanning window to reduce edge discontinuities
+  ims_han <- hanning_list(ims, ...)
+
+  # FFT image
+  ffts <- fft_list(ims_han)
+
+  # Recover angle via polar transform of fft magnitude
+  nt <- 720
+  thetas <- seq(0, 2*pi, length.out = nt)
+  angle_reg <- angle_recover(ffts, nt = nt)
+  angle_reg2 <- angle_reg
+  if (!is.null(angle.lim)) {
+    # Enforce angle constraint
+    invalid_thetas <- cos(thetas) < cos(angle.lim)
+    angle_reg2[invalid_thetas,] <- -Inf
+  }
+  theta <- thetas[get_value_idxs(angle_reg2)[1]]*180/pi
+
+  # Update with rotated image 2
+  ims_fix <- ims
+  ims_fix[[2]] <- img_rotate(ims[[2]], angle = theta, bg.col = bg_col,
+                             output.dim = img_size,
+                             output.origin = img_origin)
+
+  ims_han_fix <- hanning_list(ims_fix, invert = signal != 1, ...)
+
+  # Recover shift
+  ifft <- do.call(fft_register, ims_han_fix) # 1 on 2
+  if (!is.null(trans.lim)) {
+    # Enforce translation constraint
+    idx_mat <- ifft * 0 - Inf
+    valid_shifts_x <- 1:trans.lim[1]
+    valid_shifts_y <- 1:trans.lim[2]
+    idx_mat[valid_shifts_x, valid_shifts_y] <- 0
+    idx_mat[img_size[1] - valid_shifts_x + 1, valid_shifts_y] <- 0
+    idx_mat[valid_shifts_x, valid_shifts_y] <- 0
+    idx_mat[img_size[1] - valid_shifts_x + 1, img_size[2] - valid_shifts_y + 1] <- 0
+  } else {
+    idx_mat <- ifft * 0
+  }
+
+  transform_2_by <- mapply(fix_coord, get_value_idxs(ifft + idx_mat), img_size)
+
+  ims_fix_trans <- ims_fix
+  ims_fix_trans[[1]] <- img_translate(ims_fix[[1]], v = -pmin(0, transform_2_by),
+                                      bg.col = bg_col, output.dim = img_size)
+  ims_fix_trans[[2]] <- img_translate(ims_fix[[2]], v = pmax(0, transform_2_by),
+                                      bg.col = bg_col, output.dim = img_size)
+
+  return(list(res = ims_fix_trans,
+              angle = ims_fix, # debugging purposes
+              orig = ims, # debugging purposes
+              angle_fft_res = angle_reg, # debugging purposes
+              rot_img_2_by = theta,
+              shift_fft_res = ifft, # debugging purposes
+              translate_img_2_by = transform_2_by))
+}
+
+# find row and column of maximum value in the matrix
+get_value_idxs <- function(mat, val = max(mat)) {
+  sapply(1:2, function(x) {
+    apply(mat == val, x, function(xx) sum(xx)) %>%
+      which.max()
+  })
+}
+
+# Helper function
+fix_coord <- function(val, dim) {
+  ifelse(val > dim/2, val - dim + 1, val)
+}
+
+#' Convenience for plotting
+#'
+#' Plot a list of 2-3 images using rgbImage. If 2 images, the B channel will
+#' show the intersection between the two images. If there are 3 images, each
+#' image will be shown in a separate channel. Invisibly returns the RGB image.
+#' @param imlst List of images
+#' @export
+plot_imlist <- function(imlst) {
+  stopifnot(length(imlst) >= 2 & length(imlst) < 4)
+  if (length(imlst) == 2) imlst[[3]] <- pmin(imlst[[1]], imlst[[2]])
+  plot(do.call(EBImage::rgbImage, imlst))
+  invisible(do.call(EBImage::rgbImage, imlst))
+}
+
+#' Pad each image so that the two are the same size
+#'
+#' @param im1 image 1
+#' @param im2 image 2
+#' @export
+pad_img_match <- function(im1, im2) {
   img_size <- pmax(dim(im1), dim(im2))
   im1 <- img_pad_to_size(im1, img_size, value = 1)
   im2 <- img_pad_to_size(im2, img_size, value = 1)
 
-  # Apply Hanning window to reduce edge discontinuities
-  img1 <- (1 - im1) * (hanning_2d(dim(im1), ...))
-  img2 <- (1 - im2) * (hanning_2d(dim(im2), ...))
+  stopifnot(all.equal(dim(im1), dim(im2)))
 
-  # FFT image
-  i1 <- fft(img1) %>% fftshift()
-  i2 <- fft(img2) %>% fftshift()
-
-  # Use the FT magnitude as a new image to get rotation
-  m1 <- Re(sqrt(i1 * Conj(i1)))
-  m2 <- Re(sqrt(i2 * Conj(i2)))
-
-  nt <- 720
-  i1_rot_polar <- img_to_polar(m1, ntheta = nt)
-  i2_rot_polar <- img_to_polar(m2, ntheta = nt)
-
-  thetas <- seq(0, 2*pi, length.out = nt)
-
-  i1_rot_polar_hanning <- normalize(i1_rot_polar^.2) * (hanning_2d(dim(i1_rot_polar)))
-  i2_rot_polar_hanning <- normalize(i2_rot_polar^.2) * (hanning_2d(dim(i2_rot_polar)))
-
-  angle_reg <- fft_register(i1_rot_polar_hanning, i2_rot_polar_hanning)
-
-  theta <- thetas[which(rowSums(angle_reg == max(angle_reg)) == 1)]*180/pi
-
-  # affine_mat <- matrix(c(cos(theta), -sin(theta), sin(theta), cos(theta), 0, 0),
-                       # nrow = 3, ncol = 2, byrow = T)
-
-  # if (theta %% 180 != 0) {
-    im1_fix <- img_rotate(im1, angle = -theta,
-                          bg.col = 1, output.dim = dim(im1),
-                          output.origin = floor(dim(im1)/2))
-  # } else {
-  #   im1_fix <- im1
-  # }
-
-  img1_fix <- (1 - im1_fix) * (hanning_2d(dim(im1), ...))
-  i1_fix <- fft(img1_fix)
-
-  cross_power_rot <- i1_fix*Conj(i2)
-  cross_power_mag <- Re(sqrt(cross_power_rot * Conj(cross_power_rot)))
-  normalized_cross_power <- cross_power_rot/cross_power_mag
-
-
-  ifft <- Re(fft(normalized_cross_power, inv = T))
-
-  fix_coord <- function(val, dim) {
-    ifelse(val > dim/2, val - dim, val)
-  }
-
-  solutions <- tibble::tibble(ifft_val = sort(ifft, decreasing = T)[1:10]) %>%
-    dplyr::mutate(shift_row = purrr::map_dbl(ifft_val, ~which.max(rowSums(ifft == .))),
-                  shift_col = purrr::map_dbl(ifft_val, ~which.max(colSums(ifft == .)))) %>%
-    dplyr::mutate(shift_row = fix_coord(shift_row, dim(ifft)[1]),
-                  shift_col = fix_coord(shift_col, dim(ifft)[2]))
-
-  # affine_mat[3,] <- as.numeric(solutions[1,2:3])
-  return(list(im1 = img_translate(im1_fix, v = -as.numeric(solutions[1, 2:3]),
-                                  bg.col = 1, output.dim = dim(im1)),
-              im2 = im2,
-              theta = theta,
-              solutions = solutions))
+  return(list(im1, im2))
 }
 
+# Apply hanning filter to a list of 2 images.
+# If necessary, invert the image first (so white = signal)
+hanning_list <- function(lst, invert = T, ...) {
+  if (invert) lst <- lapply(lst, function(x) 1 - x)
+  lapply(lst, function(x) x * (hanning_2d(dim(x), ...)))
+}
+
+# Apply fft to a list
+fft_list <- function(lst, shift = T, inverse = F) {
+  # Shift first if inverse fft
+  if (inverse & shift) lst <- lapply(lst, fftshift)
+  fftlst <- lapply(lst, function(x) fft(x, inverse = inverse))
+  # Shift last if forward fft
+  if (!inverse & shift) fftlst <- lapply(fftlst, fftshift, inv = T)
+  fftlst
+}
+
+# Get the alignment angle from a set of fft'd images
+angle_recover <- function(imlst, nt = 720, ...) {
+  # Use the FT magnitude as a new image to get rotation
+  im_fft_mag <- lapply(imlst, function(x) Re(sqrt(x * Conj(x))))
+  # Convert to polar coords
+  im_polar <- lapply(im_fft_mag, function(x) img_to_polar(x, ntheta = nt))
+  # Apply hanning filter
+  im_polar_hanning <- hanning_list(im_polar, invert = F, ...) # signal is already white
+  # register ffts
+  do.call(fft_register, im_polar_hanning)
+}
+
+# Perform fft-based image registration (simple translation)
 fft_register <- function(im1, im2) {
   # assumes hanning window already applied
   # FFT image
@@ -148,15 +236,26 @@ hanning_2d <- function(imdim, widen_root = c(pmax(imdim[1]/imdim[2], 1), pmax(im
 #'
 #' Shift zero-frequency component to center of the spectrum
 #' @param mat Matrix from fft
+#' @param inv Is this un-doing a previous shift? (if so, use ceiling instead of floor so everything is put back correctly)
 #' @export
-fftshift <- function(mat) {
+fftshift <- function(mat, inv = F) {
+  if (inv) {
+    f1 <- ceiling
+  } else {
+    f1 <- floor
+  }
+
   newmat <- mat * 0
-  mid <- round(dim(mat)/2)
   imdim <- dim(mat)
+  mid <- f1(imdim/2)
+
+  # Define indexes for each quadrant of the image
   idx1 <- 1:mid[1]
-  ridx1 <- rev(imdim[1] - idx1 + 1)
+  ridx1 <- sort(imdim[1] - idx1 + 1)
   idx2 <- 1:mid[2]
-  ridx2 <- rev(imdim[2] - idx2 + 1)
+  ridx2 <- sort(imdim[2] - idx2 + 1)
+
+  # Swap quadrants
   newmat[ridx1, ridx2] <- mat[idx1, idx2]
   newmat[idx1, idx2] <- mat[ridx1, ridx2]
   newmat[ridx1, idx2] <- mat[idx1, ridx2]
