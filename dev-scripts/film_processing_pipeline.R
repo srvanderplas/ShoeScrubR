@@ -64,13 +64,13 @@ for (i in imglist) {
                }))
 
 
-      tiff::writeTIFF(scan_info$aligned_img[[1]], file.path(dirpath, "image", basename(i)), bits.per.sample = 16L)
-      tiff::writeTIFF(scan_info$align[[1]]$exag_img, file.path(dirpath, "exaggerated_mask", basename(i)))
-      tiff::writeTIFF(scan_info$align[[1]]$mask, file.path(dirpath, "mask", basename(i)))
-      tiff::writeTIFF(rgb_align(scan_info$align[[1]]), file.path(dirpath, "aligned_composite", basename(i)))
-      tiff::writeTIFF(scan_info$aligned_img_thresh[[1]] - 0.0, file.path(dirpath, "aligned_img_thresh", basename(i)))
-      tiff::writeTIFF(scan_info$aligned_mask[[1]], file.path(dirpath, "composite_mask", basename(i)))
-      tiff::writeTIFF(scan_info$clean_img, file.path(dirpath, "clean_img", basename(i)), bits.per.sample = 16L)
+      tiff::writeTIFF(t(scan_info$aligned_img[[1]]), file.path(dirpath, "image", basename(i)), bits.per.sample = 16L)
+      tiff::writeTIFF(t(scan_info$align[[1]]$exag_img), file.path(dirpath, "exaggerated_mask", basename(i)))
+      tiff::writeTIFF(t(scan_info$align[[1]]$mask), file.path(dirpath, "mask", basename(i)))
+      tiff::writeTIFF(t(rgb_align(scan_info$align[[1]])), file.path(dirpath, "aligned_composite", basename(i)))
+      tiff::writeTIFF(t(scan_info$aligned_img_thresh[[1]] - 0.0), file.path(dirpath, "aligned_img_thresh", basename(i)))
+      tiff::writeTIFF(t(scan_info$aligned_mask[[1]]), file.path(dirpath, "composite_mask", basename(i)))
+      tiff::writeTIFF(t(scan_info$clean_img), file.path(dirpath, "clean_img", basename(i)), bits.per.sample = 16L)
     } else {
       message("Image ", i, " is too big (", scan_info$im_dim[[1]], ") to be automatically handled.")
     }
