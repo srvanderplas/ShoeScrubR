@@ -26,7 +26,7 @@
 #' img1 <- pmin(pmax(img1 + noise1, 0), 1)
 #' img2 <- pmin(pmax(img2 + noise2, 0), 1)
 #'
-#' res <- fft_align(img1, img2)
+#' res <- fft_align(1 - img1, 1 - img2, angle.lim = pi)
 #'
 #' par(mfrow = c(2, 2))
 #' # Initial images
