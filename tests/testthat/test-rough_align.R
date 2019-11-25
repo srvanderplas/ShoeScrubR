@@ -175,7 +175,7 @@ test_that("clean_initial_img threshold search works", {
 test_that("binary_center search works", {
   res <- binary_center(list(shoe_mask(brand = "Nike", size = 10, foot = "L"),
                             shoe_mask(brand = "Adidas", size = 10, foot = "L")))
-  expect_equal(res[[1]], c(1068, 1890))
+  expect_equal(res[[1]], c(1006, 2159))
   expect_equal(res[[2]], c(958, 1886))
 
 })
