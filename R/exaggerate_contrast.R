@@ -16,8 +16,9 @@
 #'
 #'
 exaggerate_contrast <- function(img, mask, eps = 1e-4) {
-  likely_print <- density(img[mask == 1], bw = .001, n = 1001, from =  0, to = 1)
-  likely_bkgd <- density(img[mask == 0], bw = .001, n = 1001, from =  0, to = 1)
+  print_dens <- bkgd_dens <- x <- NULL
+  likely_print <- stats::density(img[mask == 1], bw = .001, n = 1001, from =  0, to = 1)
+  likely_bkgd <- stats::density(img[mask == 0], bw = .001, n = 1001, from =  0, to = 1)
 
   kdens_diff <- data.frame(x = likely_print$x,
                            print_dens = likely_print$y,

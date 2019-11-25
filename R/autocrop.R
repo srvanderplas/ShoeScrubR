@@ -13,7 +13,7 @@ img_autocrop <- function(img, bkgd = NULL, pad = 0) {
     if (sum(dim_bin) > 0) {
       idx <- which(dim_bin)[1]
       newimg <- img[,,idx]
-      colorMode(newimg) <- 0
+      EBImage::colorMode(newimg) <- 0
 
     } else {
       warning("Color image has no binary layers")
