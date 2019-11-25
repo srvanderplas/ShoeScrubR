@@ -27,7 +27,7 @@
 #' img1 <- pmin(pmax(img1 + noise1, 0), 1)
 #' img2 <- pmin(pmax(img2 + noise2, 0), 1)
 #'
-#' res <- fft_align(img1, img2)
+#' res <- fft_align(1 - img1, 1 - img2, angle.lim = pi)
 #'
 #' par(mfrow = c(2, 2))
 #' # Initial images
@@ -159,6 +159,7 @@ hanning_list <- function(lst, invert = T, ...) {
 fft_list <- function(lst, shift = T, inverse = F) {
   # Shift first if inverse fft
   if (inverse & shift) lst <- lapply(lst, fftshift)
+
   fftlst <- lapply(lst, function(x) fft(x, inverse = inverse))
   # Shift last if forward fft
   if (!inverse & shift) fftlst <- lapply(fftlst, fftshift, inv = T)
@@ -185,11 +186,12 @@ fft_register <- function(im1, im2) {
   i2 <- fft(im2)
 
   cross_power <- i1*Conj(i2)
-  cross_power_mag <- Re(sqrt(cross_power * Conj(cross_power)))
-  normalized_cross_power <- cross_power/cross_power_mag
+  normalized_cross_power <- cross_power / Mod(cross_power)
 
 
-  ifft <- Re(fft(normalized_cross_power, inv = T))
+  ifft <- Re(fft(cross_power, inv = T))/length(cross_power)
+  # Force same format
+  ifft <- 0*im1 + ifft
 
   return(ifft)
 }
