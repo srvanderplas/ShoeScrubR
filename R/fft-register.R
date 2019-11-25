@@ -9,6 +9,7 @@
 #' @param trans.lim Restrict search to coordinates between
 #'                  (-trans.lim[1], trans.lim[1]) x (-trans.lim[2], trans.lim[2]).
 #'                  Defaults to (200, 200)
+#' @param angle.len How long should the vector of angle options between 0 and 2*pi be?
 #' @param ... extra arguments passed to e.g. hanning_2d providing the widening
 #'            exponents.
 #' @export
@@ -36,7 +37,7 @@
 #' # Fully transformed imgs
 #' plot(EBImage::rgbImage(res$res[[1]], res$res[[2]], pmin(res$res[[1]], res$res[[2]])))
 fft_align <- function(im1, im2, signal = 1, show_bg = F,
-                      angle.lim = pi/18, trans.lim = c(200, 200), ...) {
+                      angle.lim = pi/18, trans.lim = c(200, 200), angle.len = 1080, ...) {
 
   # Ensure same size, origin
   ims <- pad_img_match(im1, im2)
@@ -135,11 +136,12 @@ plot_imlist <- function(imlst) {
 #'
 #' @param im1 image 1
 #' @param im2 image 2
+#' @param value pad value
 #' @export
-pad_img_match <- function(im1, im2) {
+pad_img_match <- function(im1, im2, value = 1) {
   img_size <- pmax(dim(im1), dim(im2))
-  im1 <- img_pad_to_size(im1, img_size, value = 1)
-  im2 <- img_pad_to_size(im2, img_size, value = 1)
+  im1 <- img_pad_to_size(im1, img_size, value = value)
+  im2 <- img_pad_to_size(im2, img_size, value = value)
 
   stopifnot(all.equal(dim(im1), dim(im2)))
 
@@ -221,13 +223,13 @@ img_to_polar <- function(img, ntheta = 360) {
 #'                   filter is proportionate to the image.
 #' @param ... extra parameters which will be dropped without warning
 #' @export
-hanning_2d <- function(imdim, widen_root = c(pmax(imdim[1]/imdim[2], 1), pmax(imdim[2]/imdim[1], 1)), ...) {
+hanning_2d <- function(imdim, widen_root = c(pmax(imdim[1]/imdim[2], 1),
+                                             pmax(imdim[2]/imdim[1], 1)), ...) {
   hanning_row <- 1 - cos(2*pi*(1:imdim[1])/imdim[1])
   hanning_col <- 1 - cos(2*pi*(1:imdim[2])/imdim[2])
 
-  mat <- (.5)^(1/mean(widen_root)) *
-    (hanning_row)^(1/widen_root[1]) %*%
-    (t(hanning_col))^(1/widen_root[2])
+  mat <- (.5 * hanning_row)^(1/widen_root[1]) %*%
+    (.5 * t(hanning_col))^(1/widen_root[2])
 
   EBImage::as.Image(mat)
 }
